@@ -6,7 +6,7 @@ nav_order: 5
 
 # Using the Inference Studio API
 
-Inference Studio exposes a fully **OpenAI-compatible API** at `/v1`. Any client or library that works with OpenAI will work here — change only the `base_url` and `api_key`.
+Inference Studio exposes a fully **OpenAI-compatible API** at `/v1`. Any client or library that works with OpenAI will work here. Change only the `base_url` and `api_key`.
 
 ## Base URLs
 
@@ -169,7 +169,7 @@ curl http://localhost:3000/v1/models \
 
 ## SDK Usage
 
-### Python — openai library
+### Python (openai library)
 
 ```python
 from openai import OpenAI
@@ -200,7 +200,7 @@ with client.chat.completions.stream(
         print(text, end="", flush=True)
 ```
 
-### TypeScript — openai SDK
+### TypeScript (openai SDK)
 
 ```typescript
 import OpenAI from "openai";
@@ -227,7 +227,7 @@ for await (const chunk of stream) {
 }
 ```
 
-### Python — httpx (no SDK)
+### Python (httpx, no SDK)
 
 ```python
 import httpx, json
@@ -303,7 +303,7 @@ When the deploy script is running, a public tunnel URL is shown:
 Public → https://abc-def-ghi.trycloudflare.com
 ```
 
-Use this URL as the `base_url` to access your inference endpoint from anywhere — no port forwarding or firewall changes needed.
+Use this URL as the `base_url` to access your inference endpoint from anywhere. No port forwarding or firewall changes needed.
 
 ```python
 client = OpenAI(
@@ -312,4 +312,4 @@ client = OpenAI(
 )
 ```
 
-The tunnel is ephemeral — the URL changes each time you restart `deploy-locally.sh`. For a permanent URL, see [Customization → Persistent Cloudflare tunnel](customization.md#persistent-cloudflare-tunnel-named-tunnel).
+The tunnel is ephemeral. The URL changes each time you restart `deploy-locally.sh`. For a permanent URL, see [Customization → Persistent Cloudflare tunnel](customization.md#persistent-cloudflare-tunnel-named-tunnel).

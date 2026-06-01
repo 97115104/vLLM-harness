@@ -45,7 +45,7 @@ API_PORT=8081
 
 ## Adding models
 
-Edit `api/src/routes/setup.ts` — add an entry to the `MODELS` array:
+Edit `api/src/routes/setup.ts` and add an entry to the `MODELS` array:
 
 ```typescript
 {
@@ -107,12 +107,12 @@ Remove the `hf_cache` volume declaration at the bottom.
 If you prefer to run natively:
 
 ```bash
-# Terminal 1 — API
+# Terminal 1 - API
 cd api
 npm install
 DATA_DIR=../data VLLM_URL=http://localhost:8000 ADMIN_PASSWORD=password npm run dev
 
-# Terminal 2 — Web
+# Terminal 2 - Web
 cd web
 npm install
 API_URL=http://localhost:3001 npm run dev

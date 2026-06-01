@@ -1,5 +1,5 @@
 title: Inference Studio
-description: Self-hosted AI inference — one command to run any open-source LLM locally
+description: Self-hosted AI inference. One command to run any open-source LLM locally.
 theme: jekyll-theme-cayman
 url: ""
 baseurl: ""

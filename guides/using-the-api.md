@@ -1,20 +1,20 @@
 # Using the Inference Studio API
 
-After deploying a model (`bash deploy-locally.sh` → select model → wait for green status), you have a running OpenAI-compatible API. This guide walks through connecting clients to it.
+After deploying a model (`bash deploy-locally.sh` > select model > wait for green status), you have a running OpenAI-compatible API.
 
 ---
 
-## Step 1 — Get an API key
+## Step 1: Get an API key
 
 1. Open `http://localhost:3000/admin` in your browser
 2. Log in (default: **admin / password**)
 3. Go to the **Keys** tab
 4. Enter a name (e.g. `my-app`) and click **+ Create key**
-5. Copy the key immediately — it starts with `sk-studio-` and is only shown once
+5. Copy the key immediately (starts with `sk-studio-`, only shown once)
 
 ---
 
-## Step 2 — Know your endpoint
+## Step 2: Know your endpoint
 
 | Where | Base URL |
 |-------|----------|
@@ -23,7 +23,7 @@ After deploying a model (`bash deploy-locally.sh` → select model → wait for 
 
 ---
 
-## Step 3 — Make your first request
+## Step 3: Make your first request
 
 ### Quick test (cURL)
 
@@ -133,7 +133,7 @@ The deploy script starts a Cloudflare Quick Tunnel automatically. The public URL
 To give someone else access:
 1. Copy the tunnel URL (e.g. `https://abc-def.trycloudflare.com`)
 2. Create an API key for them in Admin → Keys
-3. Share both — they can use them from any network, no VPN needed
+3. Share both. They can connect from any network, no VPN needed
 
 The recipient uses the tunnel URL as their `base_url`:
 ```python
@@ -197,10 +197,10 @@ To revoke a key: Admin → Keys → click **disable** or **del**.
 
 ## Troubleshooting
 
-**`401 invalid_api_key`** — double-check the key was copied correctly and is enabled in Admin → Keys.
+**`401 invalid_api_key`**: double-check the key was copied correctly and is enabled in Admin > Keys.
 
-**`503 engine_unavailable`** — no model is deployed. Go to `http://localhost:3000`, select a model, and wait for the green status indicator.
+**`503 engine_unavailable`**: no model is deployed. Go to `http://localhost:3000`, select a model, and wait for the green status indicator.
 
-**Request times out** — the model may still be loading (large models take several minutes). Check the admin panel status or run `docker logs inference-studio-vllm | tail -20`.
+**Request times out**: the model may still be loading (large models take several minutes). Check the admin panel status or run `docker logs inference-studio-vllm | tail -20`.
 
-**Streaming doesn't work** — make sure you're setting `"stream": true` and that your HTTP client supports SSE (server-sent events). The `/chat` interface always uses streaming.
+**Streaming doesn't work**: make sure you're setting `"stream": true` and that your HTTP client supports SSE (server-sent events). The `/chat` interface always uses streaming.

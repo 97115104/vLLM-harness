@@ -1,4 +1,4 @@
-# Inference Studio — Setup & Troubleshooting Guide
+# Inference Studio: Setup & Troubleshooting
 
 ## Quick start
 
@@ -8,7 +8,7 @@ cd vLLM-harness
 bash deploy-locally.sh
 ```
 
-That's it. The script handles everything: installing Docker, NVIDIA drivers, pulling the vLLM image, starting the web UI, and creating a Cloudflare tunnel for external access.
+The script handles everything: installing Docker, NVIDIA drivers, pulling the vLLM image, starting the web UI, and creating a Cloudflare tunnel for external access.
 
 ---
 
@@ -52,7 +52,7 @@ After the script starts the services, your browser opens to `http://localhost:30
 
 1. **Choose a model** from the top 5, or click "View more" for the full list
 2. Models marked **HF token** require accepting terms on huggingface.co first
-3. Click **Deploy** — the system pulls the Docker image and starts vLLM
+3. Click **Deploy**. The system pulls the Docker image and starts vLLM
 4. Wait for the green "running" indicator (large models may take 5–15 min to download)
 
 **VRAM guidance:**
@@ -71,7 +71,7 @@ After the script starts the services, your browser opens to `http://localhost:30
 2. Log in with **admin / password** (change this immediately!)
 3. Go to the **Keys** tab
 4. Enter a name, click **+ Create key**
-5. Copy the key — it is shown once only
+5. Copy the key (shown once only)
 
 API keys look like: `sk-studio-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`
 
@@ -79,7 +79,7 @@ API keys look like: `sk-studio-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`
 
 ## Using the API
 
-Inference Studio exposes an **OpenAI-compatible API**. Any client that works with OpenAI will work here — just change the base URL and API key.
+Inference Studio exposes an **OpenAI-compatible API**. Any client that works with OpenAI will work here. Just change the base URL and API key.
 
 ### cURL example
 
@@ -121,7 +121,7 @@ curl https://xxx-yyy-zzz.trycloudflare.com/v1/chat/completions \
   ...
 ```
 
-The tunnel URL changes every time you restart the script. Share it with your API key for remote access — no port forwarding needed.
+The tunnel URL changes every time you restart the script. Share it with your API key for remote access. No port forwarding needed.
 
 ---
 
@@ -130,10 +130,10 @@ The tunnel URL changes every time you restart the script. Share it with your API
 ### "Docker is not running"
 
 ```bash
-# Linux — start Docker
+# Linux - start Docker
 sudo systemctl start docker
 
-# macOS — open Docker Desktop from Applications, wait for it to start
+# macOS - open Docker Desktop from Applications, wait for it to start
 open -a Docker
 ```
 
@@ -162,7 +162,7 @@ newgrp docker
 The system automatically retries with lower `--gpu-memory-utilization` (from 0.90 down to 0.50 in 0.10 steps). You'll see this in the logs:
 
 ```
-OOM detected — retrying at gpu_memory_utilization=0.80
+OOM detected - retrying at gpu_memory_utilization=0.80
 ```
 
 If it still fails at 0.50, the model is too large for your GPU. Try a smaller model (Phi-4 Mini or TinyLlama).
@@ -194,7 +194,7 @@ The API container manages the vLLM container. If it shows idle:
 The tunnel is optional. If it doesn't start:
 - Your instance still works locally at `http://localhost:3000`
 - To manually start a tunnel: `cloudflared tunnel --url http://localhost:3000`
-- The tunnel URL is temporary — it changes every restart. For a permanent URL, [create a free Cloudflare account](https://dash.cloudflare.com/sign-up) and set up a named tunnel.
+- The tunnel URL is temporary. It changes every restart. For a permanent URL, [create a free Cloudflare account](https://dash.cloudflare.com/sign-up) and set up a named tunnel.
 
 ### Admin login doesn't work
 
@@ -279,7 +279,7 @@ docker compose up -d
 # Stop and remove containers
 docker compose down
 
-# Remove Docker volumes (HuggingFace model cache — large!)
+# Remove Docker volumes (HuggingFace model cache, this is large!)
 docker volume rm inference-studio_hf_cache
 
 # Remove data directory (API keys, request history)

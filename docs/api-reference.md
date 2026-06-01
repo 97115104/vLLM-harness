@@ -6,7 +6,7 @@ nav_order: 3
 
 # API Reference
 
-Inference Studio exposes an OpenAI-compatible API. Any client that works with the OpenAI SDK will work here — just change the `base_url` and `api_key`.
+Inference Studio exposes an OpenAI-compatible API. Any client that works with the OpenAI SDK will work here. Just change the `base_url` and `api_key`.
 
 ## Base URL
 

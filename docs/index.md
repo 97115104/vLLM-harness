@@ -6,7 +6,7 @@ nav_order: 1
 
 # Inference Studio
 
-**Run any open-source LLM on your own hardware — one command, polished web interface, instant remote access.**
+**Run any open-source LLM on your own hardware. One command, polished web interface, instant remote access.**
 
 ```bash
 git clone https://github.com/your-org/vLLM-harness
@@ -14,30 +14,30 @@ cd vLLM-harness
 bash deploy-locally.sh
 ```
 
-That's all you need. The script installs every dependency, detects your GPU, pulls the model, and opens a browser window.
+The script installs every dependency, detects your GPU, pulls the model, and opens a browser window.
 
 ---
 
 ## What you get
 
-- **Web-based model picker** — choose from Mistral 7B, Qwen 2.5, GPT-OSS 20B, Phi-4 Mini, TinyLlama, and more
-- **Chat interface** — polished dark UI, streaming responses, conversation history
-- **Voice interface** — generate responses and read them aloud with browser TTS
-- **Admin dashboard** — create/manage API keys, view request logs, change passwords
-- **OpenAI-compatible API** — works with any client that supports the OpenAI SDK
-- **Cloudflare Quick Tunnel** — instant remote access, no account required, no port forwarding
-- **Self-healing OOM** — automatically adjusts GPU memory utilization if the model doesn't fit
+- **Web-based model picker**: choose from Mistral 7B, Qwen 2.5, GPT-OSS 20B, Phi-4 Mini, TinyLlama, and more
+- **Chat interface**: polished dark UI, streaming responses, conversation history
+- **Voice interface**: generate responses and read them aloud with browser TTS
+- **Admin dashboard**: create/manage API keys, view request logs, change passwords
+- **OpenAI-compatible API**: works with any client that supports the OpenAI SDK
+- **Cloudflare Quick Tunnel**: instant remote access, no account required, no port forwarding
+- **Self-healing OOM**: automatically adjusts GPU memory utilization if the model doesn't fit
 
 ---
 
 ## Navigation
 
-- [Features](features.md) — full feature list and capability overview
-- [Using the API](completions.md) — chat completions, streaming, SDK examples, integrations
-- [API Reference](api-reference.md) — full endpoint reference and admin API
-- [Customization](customization.md) — changing models, ports, credentials, and more
-- [Setup Guide](../guides/setup-and-troubleshooting.md) — installation, troubleshooting
-- [API Usage Guide](../guides/using-the-api.md) — connecting clients, remote access, common integrations
+- [Features](features.md) - full feature list and capability overview
+- [Using the API](completions.md) - chat completions, streaming, SDK examples, integrations
+- [API Reference](api-reference.md) - full endpoint reference and admin API
+- [Customization](customization.md) - changing models, ports, credentials, and more
+- [Setup Guide](../guides/setup-and-troubleshooting.md) - installation, troubleshooting
+- [API Usage Guide](../guides/using-the-api.md) - connecting clients, remote access, common integrations
 
 ---
 

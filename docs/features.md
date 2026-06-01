@@ -46,7 +46,7 @@ The current utilization is shown on the dashboard and in the admin panel.
 - Displays the active Cloudflare tunnel URL with a copy button
 - Quick-start API snippet
 - Recent request log (for admins)
-- **Model picker wizard** when no model is running — shows top 5 with VRAM requirements, expandable to full list
+- **Model picker wizard** when no model is running: shows top 5 with VRAM requirements, expandable to full list
 
 ### Chat (`/chat`)
 - Full-page streaming chat interface
@@ -59,7 +59,7 @@ The current utilization is shown on the dashboard and in the admin panel.
 
 ### Voice (`/voice`)
 - LLM-powered text generation with a system prompt tuned for natural speech
-- Browser-native TTS (Web Speech API) — works offline, no TTS server needed
+- Browser-native TTS (Web Speech API), works offline, no TTS server needed
 - Live waveform canvas: breathing animation at idle, frequency bars while speaking
 - Voice picker + speed control
 - Copy response to clipboard
