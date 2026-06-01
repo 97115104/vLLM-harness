@@ -24,7 +24,7 @@ seedRoot().catch(console.error);
 
 // ── Login (supports 2FA) ──────────────────────────────────────────────────────
 admin.post("/login", async c => {
-  const body = await c.req
+  const body: { username?: string; password?: string; totpCode?: string } = await c.req
     .json<{ username?: string; password?: string; totpCode?: string }>()
     .catch(() => ({}));
 
@@ -54,7 +54,7 @@ admin.use("/*", adminAuth);
 // ── Change password ───────────────────────────────────────────────────────────
 admin.post("/password", async c => {
   const id   = c.get("adminId") as string;
-  const body = await c.req.json<{ current?: string; new?: string }>().catch(() => ({}));
+  const body: { current?: string; new?: string } = await c.req.json<{ current?: string; new?: string }>().catch(() => ({}));
   if (!body.current || !body.new || body.new.length < 8)
     return c.json({ error: "current password + new password (8+ chars) required" }, 400);
 
@@ -138,7 +138,7 @@ admin.get("/keys", c => {
 });
 
 admin.post("/keys", async c => {
-  const body   = await c.req.json<{ name?: string; owner_email?: string; scopes?: string[] }>().catch(() => ({}));
+  const body: { name?: string; owner_email?: string; scopes?: string[] } = await c.req.json<{ name?: string; owner_email?: string; scopes?: string[] }>().catch(() => ({}));
   const raw    = "sk-studio-" + randomBytes(24).toString("base64url");
   const hash   = createHash("sha256").update(raw).digest("hex");
   const prefix = raw.slice(0, 20);
@@ -153,7 +153,7 @@ admin.post("/keys", async c => {
 
 admin.patch("/keys/:id", async c => {
   const id   = c.req.param("id");
-  const body = await c.req.json<{ active?: boolean; name?: string; scopes?: string[] }>().catch(() => ({}));
+  const body: { active?: boolean; name?: string; scopes?: string[] } = await c.req.json<{ active?: boolean; name?: string; scopes?: string[] }>().catch(() => ({}));
   const updates: Record<string, unknown> = {};
   if (typeof body.active === "boolean") updates.active = body.active ? 1 : 0;
   if (typeof body.name   === "string")  updates.name   = body.name;

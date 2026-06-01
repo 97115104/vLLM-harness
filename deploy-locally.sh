@@ -76,7 +76,7 @@ print_banner() {
   printf "\n${B}${LIME}"
   printf "  ╔══════════════════════════════════════════╗\n"
   printf "  ║        INFERENCE  STUDIO  v1.0           ║\n"
-  printf "  ║   Self-hosted AI inference — locally     ║\n"
+  printf "  ║        Self-hosted vLLM inference        ║\n"
   printf "  ╚══════════════════════════════════════════╝${R}\n\n"
 }
 
@@ -339,34 +339,51 @@ _cloudflared_bin() {
 install_all_deps() {
   section "Installing system dependencies"
 
-  # Prompt for sudo password once, before any installations begin
-  ensure_sudo
+  # Only prompt for sudo if something actually needs installing.
+  # Running in non-interactive shells (no TTY) fails if sudo isn't cached,
+  # so skip the prompt entirely when every dep is already present.
+  local _needs_sudo=false
+  for _p in curl wget git jq; do pkg_ok "$_p" || { _needs_sudo=true; break; }; done
+  if ! $_needs_sudo; then
+    { pkg_ok docker && docker info >/dev/null 2>&1; } || _needs_sudo=true
+  fi
+  if ! $_needs_sudo && [[ "$GPU_TYPE" == "nvidia" ]]; then
+    { nvidia-ctk --version >/dev/null 2>&1 || \
+      { [[ -f /etc/docker/daemon.json ]] && grep -q nvidia /etc/docker/daemon.json 2>/dev/null; }; } \
+      || _needs_sudo=true
+  fi
+  if ! $_needs_sudo; then pkg_ok cloudflared || _needs_sudo=true; fi
+  $_needs_sudo && ensure_sudo
 
-  case "$OS" in
-    debian)
-      $S apt-get update -qq >/dev/null 2>&1 &
-      spin $! "Updating package lists"
-      for p in curl wget git jq; do install_pkg "$p"; done
-      ;;
-    arch)
-      $S pacman -Sy --noconfirm >/dev/null 2>&1 &
-      spin $! "Syncing package database"
-      for p in curl wget git jq; do install_pkg "$p"; done
-      ;;
-    fedora)
-      $S dnf makecache -q >/dev/null 2>&1 &
-      spin $! "Updating package cache"
-      for p in curl wget git jq; do install_pkg "$p"; done
-      ;;
-    macos)
-      if ! pkg_ok brew; then
-        /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" \
-          </dev/null >/dev/null 2>&1 &
-        spin $! "Installing Homebrew"
-      fi
-      for p in curl wget git jq; do install_pkg "$p"; done
-      ;;
-  esac
+  if $_needs_sudo; then
+    case "$OS" in
+      debian)
+        $S apt-get update -qq >/dev/null 2>&1 &
+        spin $! "Updating package lists"
+        for p in curl wget git jq; do install_pkg "$p"; done
+        ;;
+      arch)
+        $S pacman -Sy --noconfirm >/dev/null 2>&1 &
+        spin $! "Syncing package database"
+        for p in curl wget git jq; do install_pkg "$p"; done
+        ;;
+      fedora)
+        $S dnf makecache -q >/dev/null 2>&1 &
+        spin $! "Updating package cache"
+        for p in curl wget git jq; do install_pkg "$p"; done
+        ;;
+      macos)
+        if ! pkg_ok brew; then
+          /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" \
+            </dev/null >/dev/null 2>&1 &
+          spin $! "Installing Homebrew"
+        fi
+        for p in curl wget git jq; do install_pkg "$p"; done
+        ;;
+    esac
+  else
+    for p in curl wget git jq; do ok "$p already installed"; done
+  fi
 
   install_docker
   install_nvidia_toolkit
@@ -378,17 +395,17 @@ install_all_deps() {
 # ─────────────────────────────────────────────────────────────────────────────
 # docker compose command detection
 # ─────────────────────────────────────────────────────────────────────────────
-COMPOSE_CMD=""
+COMPOSE_CMD=()
 
 detect_compose() {
   if docker compose version >/dev/null 2>&1; then
-    COMPOSE_CMD="docker compose"
+    COMPOSE_CMD=(docker compose)
   elif command -v docker-compose >/dev/null 2>&1; then
-    COMPOSE_CMD="docker-compose"
+    COMPOSE_CMD=(docker-compose)
   else
     die "docker compose not found. Install docker-compose-plugin."
   fi
-  log "Compose: ${B}$COMPOSE_CMD${R}"
+  log "Compose: ${B}$(IFS=' '; echo "${COMPOSE_CMD[*]}")${R}"
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -414,11 +431,29 @@ start_studio() {
   done
 
   printf "   ${CYN}⋯${R}  Building containers (first run: several minutes)…\n"
-  $COMPOSE_CMD build --pull >/dev/null 2>&1 &
-  spin $! "Building Docker images"
+  local _build_log; _build_log=$(mktemp)
+  "${COMPOSE_CMD[@]}" build --pull >"$_build_log" 2>&1 &
+  local _build_pid=$!
+  spin $_build_pid "Building Docker images"
+  wait $_build_pid || {
+    printf "\r   ${RED}✗${R}  Docker build failed:\n"
+    cat "$_build_log"
+    rm -f "$_build_log"
+    die "Fix the build errors above and re-run."
+  }
+  rm -f "$_build_log"
 
-  $COMPOSE_CMD up -d >/dev/null 2>&1 &
-  spin $! "Starting services"
+  local _up_log; _up_log=$(mktemp)
+  "${COMPOSE_CMD[@]}" up -d >"$_up_log" 2>&1 &
+  local _up_pid=$!
+  spin $_up_pid "Starting services"
+  wait $_up_pid || {
+    printf "\r   ${RED}✗${R}  docker compose up failed:\n"
+    cat "$_up_log"
+    rm -f "$_up_log"
+    die "Containers failed to start — see errors above."
+  }
+  rm -f "$_up_log"
 
   # Wait for API (up to 3 min)
   local deadline=$(( $(date +%s) + 180 ))
@@ -428,7 +463,7 @@ start_studio() {
   done
   curl -sf "http://localhost:$API_PORT/health" >/dev/null 2>&1 \
     && ok "API ready  →  http://localhost:$API_PORT" \
-    || warn "API health check timed out — run: $COMPOSE_CMD logs api"
+    || warn "API health check timed out — run: $(IFS=' '; echo "${COMPOSE_CMD[*]}") logs api"
 
   # Wait for web (up to 3 min)
   deadline=$(( $(date +%s) + 180 ))
@@ -438,7 +473,7 @@ start_studio() {
   done
   curl -sf "http://localhost:$WEB_PORT" >/dev/null 2>&1 \
     && ok "Web UI ready  →  http://localhost:$WEB_PORT" \
-    || warn "Web UI health check timed out — run: $COMPOSE_CMD logs web"
+    || warn "Web UI health check timed out — run: $(IFS=' '; echo "${COMPOSE_CMD[*]}") logs web"
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -543,7 +578,11 @@ cleanup() {
   [[ -n "$TUNNEL_PID" ]] && kill "$TUNNEL_PID" 2>/dev/null || true
   [[ -n "$SUDO_KEEP_ALIVE" ]] && kill "$SUDO_KEEP_ALIVE" 2>/dev/null || true
   cd "$SCRIPT_DIR"
-  ${COMPOSE_CMD:-docker compose} stop >/dev/null 2>&1 || true
+  if [[ ${#COMPOSE_CMD[@]} -gt 0 ]]; then
+    "${COMPOSE_CMD[@]}" stop >/dev/null 2>&1 || true
+  else
+    docker compose stop >/dev/null 2>&1 || true
+  fi
   printf "${GRN}Done.${R}\n"
 }
 trap cleanup EXIT INT TERM

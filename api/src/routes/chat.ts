@@ -132,7 +132,7 @@ chat.all("/*", async c => {
       } else {
         // Non-streaming: clone body to capture response
         const cloned = upstream.clone();
-        cloned.json<{ choices?: { message?: { content?: string }; text?: string }[]; usage?: { prompt_tokens?: number; completion_tokens?: number } }>()
+        (cloned.json() as Promise<{ choices?: { message?: { content?: string }; text?: string }[]; usage?: { prompt_tokens?: number; completion_tokens?: number } }>)
           .then(body => {
             const responseContent = body.choices?.[0]?.message?.content ?? body.choices?.[0]?.text ?? null;
             db.prepare("UPDATE requests SET status='completed', latency_ms=?, tokens_in=?, tokens_out=?, response_content=? WHERE id=?")

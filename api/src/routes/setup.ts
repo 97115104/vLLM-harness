@@ -140,7 +140,7 @@ setup.get("/status", async c => {
 setup.get("/models", c => c.json({ models: MODELS }));
 
 setup.post("/deploy", adminAuth, async c => {
-  const body = await c.req.json<{ model?: string; hf_token?: string }>().catch(() => ({}));
+  const body: { model?: string; hf_token?: string } = await c.req.json<{ model?: string; hf_token?: string }>().catch(() => ({}));
   if (!body.model) return c.json({ error: "model is required" }, 400);
 
   const found = MODELS.find(m => m.id === body.model);
@@ -176,7 +176,7 @@ setup.get("/logs", adminAuth, c => {
 });
 
 setup.post("/tunnel", adminAuth, async c => {
-  const body = await c.req.json<{ url?: string }>().catch(() => ({}));
+  const body: { url?: string } = await c.req.json<{ url?: string }>().catch(() => ({}));
   if (!body.url) return c.json({ error: "url required" }, 400);
   db.prepare("INSERT INTO settings (key, value) VALUES ('tunnel_url', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=datetime('now')").run(body.url);
   return c.json({ ok: true });

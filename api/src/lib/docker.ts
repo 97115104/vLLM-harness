@@ -169,7 +169,7 @@ async function watchForOom(container: Dockerode.Container, windowMs = 180_000): 
 
         if (/cuda out of memory|OutOfMemoryError|failed to allocate|CUDA error: out of memory/i.test(accumulated)) {
           clearTimeout(timeout);
-          try { (stream as NodeJS.ReadableStream).destroy(); } catch { /* ok */ }
+          try { (stream as unknown as { destroy(): void }).destroy(); } catch { /* ok */ }
           resolve(true);
         }
       });
