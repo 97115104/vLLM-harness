@@ -25,8 +25,4 @@ MIT
 
 ## Attestation
 
-This project was built in collaboration with Claude Sonnet 4.6 (Anthropic).
-
-[![Attested by Claude Sonnet 4.6](https://attest.97115104.com/badge/cy1a0o3x)](https://attest.97115104.com/s/cy1a0o3x)
-
 Verify: [attest.97115104.com/s/cy1a0o3x](https://attest.97115104.com/s/cy1a0o3x)
