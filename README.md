@@ -1,6 +1,6 @@
 # Inference Studio
 
-Self-hosted LLM inference with a web interface and OpenAI-compatible API.
+Self-hosted vLLM inference with a web interface and OpenAI-compatible API.
 
 ```bash
 git clone https://github.com/your-org/vLLM-harness
