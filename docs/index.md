@@ -33,9 +33,11 @@ That's all you need. The script installs every dependency, detects your GPU, pul
 ## Navigation
 
 - [Features](features.md) — full feature list and capability overview
-- [API Reference](api-reference.md) — endpoints, authentication, streaming
+- [Using the API](completions.md) — chat completions, streaming, SDK examples, integrations
+- [API Reference](api-reference.md) — full endpoint reference and admin API
 - [Customization](customization.md) — changing models, ports, credentials, and more
 - [Setup Guide](../guides/setup-and-troubleshooting.md) — installation, troubleshooting
+- [API Usage Guide](../guides/using-the-api.md) — connecting clients, remote access, common integrations
 
 ---
 

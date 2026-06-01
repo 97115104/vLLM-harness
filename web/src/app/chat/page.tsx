@@ -1,6 +1,5 @@
 "use client";
 import { useState, useRef, useEffect, useCallback } from "react";
-import Navbar from "@/components/navbar";
 
 type Role = "user" | "assistant" | "system";
 type Message = { role: Role; content: string; id: string };
@@ -155,10 +154,12 @@ export default function ChatPage() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100dvh" }}>
-      <Navbar />
-
       {/* Topbar */}
       <div style={{ borderBottom: "1px solid #1a1a1a", padding: "0 16px", height: "40px", display: "flex", alignItems: "center", gap: "12px", flexShrink: 0 }}>
+        <a href="/" style={{ color: "#ccff00", fontSize: "13px", fontWeight: 700, letterSpacing: "0.05em", textDecoration: "none", whiteSpace: "nowrap" }}>
+          Inference Studio
+        </a>
+        <span style={{ color: "#2a2a2a" }}>|</span>
         <span className="text-xs font-mono" style={{ color: "#555", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {model || "no model active"}
         </span>
