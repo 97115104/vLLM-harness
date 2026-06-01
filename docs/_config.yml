@@ -1,0 +1,21 @@
+title: Inference Studio
+description: Self-hosted AI inference — one command to run any open-source LLM locally
+theme: jekyll-theme-cayman
+url: ""
+baseurl: ""
+markdown: kramdown
+kramdown:
+  input: GFM
+  syntax_highlighter: rouge
+
+# GitHub Pages settings
+plugins:
+  - jekyll-relative-links
+  - jekyll-seo-tag
+
+relative_links:
+  enabled: true
+  collections: true
+
+include:
+  - _pages

@@ -1,0 +1,52 @@
+name: inference-studio
+
+services:
+  api:
+    build: ./api
+    container_name: inference-studio-api
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./data:/app/data
+      - hf_cache:/tmp/hf_cache
+    environment:
+      - PORT=3001
+      - DATA_DIR=/app/data
+      - VLLM_URL=http://host.docker.internal:8000
+      - DOCKER_NETWORK=inference-studio_default
+      - HF_CACHE=/tmp/hf_cache
+      - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-password}
+      - JWT_SECRET=${JWT_SECRET:-inference-studio-change-me-in-production}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  web:
+    build: ./web
+    container_name: inference-studio-web
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - API_URL=http://api:3001
+      - NEXT_TELEMETRY_DISABLED=1
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+volumes:
+  hf_cache:
