@@ -4,7 +4,9 @@ import { adminAuth, type HonoVars } from "../middleware/auth.js";
 import { deployModel, stopVllm, getVllmStatus, vllmLogs } from "../lib/docker.js";
 import db from "../db/index.js";
 
-const VLLM_URL = process.env.VLLM_URL || "http://localhost:8000";
+// VLLM_URL from docker-compose: http://host.docker.internal:8000
+// host.docker.internal resolves to the Docker gateway, reaching the host-networked vLLM container
+const VLLM_URL = process.env.VLLM_URL || "http://inference-studio-vllm:8000";
 
 export const MODELS = [
   {

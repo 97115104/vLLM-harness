@@ -2,6 +2,7 @@
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import Navbar from "@/components/navbar";
+import Footer from "@/components/footer";
 import type { Model } from "@/lib/api";
 
 const TOP_5 = [
@@ -299,7 +300,6 @@ function Dashboard({ status }: { status: Status }) {
       <div className="flex gap-3 mb-8">
         {[
           { href: "/chat",  label: "Open Chat →" },
-          { href: "/voice", label: "Voice →" },
           { href: "/admin", label: "Manage keys →" },
         ].map(l => (
           <a key={l.href} href={l.href}
@@ -386,6 +386,7 @@ export default function Home() {
         )}
         {phase === "running" && status && <Dashboard status={status} />}
       </main>
+      <Footer />
     </>
   );
 }

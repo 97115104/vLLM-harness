@@ -22,9 +22,8 @@ export default function Navbar() {
   }, []);
 
   const nav = [
-    { href: "/",      label: "Dashboard" },
-    { href: "/chat",  label: "Chat" },
-    { href: "/voice", label: "Voice" },
+    { href: "/",     label: "Dashboard" },
+    { href: "/chat", label: "Chat" },
   ];
 
   return (

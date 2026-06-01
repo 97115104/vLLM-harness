@@ -2,6 +2,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Navbar from "@/components/navbar";
+import Footer from "@/components/footer";
 
 type Tab = "models" | "keys" | "requests" | "settings";
 
@@ -430,6 +431,7 @@ export default function AdminPage() {
           )}
         </div>
       </div>
+      <Footer />
     </>
   );
 }
