@@ -13,10 +13,12 @@ db.pragma("foreign_keys = ON");
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS admins (
-    id         TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
-    username   TEXT UNIQUE NOT NULL,
+    id            TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    username      TEXT UNIQUE NOT NULL,
     password_hash TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    totp_secret   TEXT,
+    totp_enabled  INTEGER NOT NULL DEFAULT 0,
+    created_at    TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
   CREATE TABLE IF NOT EXISTS api_keys (
@@ -52,8 +54,25 @@ db.exec(`
   );
 `);
 
-export type Admin  = { id: string; username: string; password_hash: string; created_at: string };
-export type ApiKey = { id: string; prefix: string; key_hash: string; raw_key: string | null; name: string | null; owner_email: string | null; active: number; scopes: string; created_at: string; last_used_at: string | null };
-export type Request = { id: string; api_key_id: string | null; model: string; status: string; tokens_in: number | null; tokens_out: number | null; latency_ms: number | null; prompt_preview: string | null; error: string | null; created_at: string };
+// Migrate existing admins table to add totp columns if they don't exist
+for (const col of ["totp_secret TEXT", "totp_enabled INTEGER NOT NULL DEFAULT 0"]) {
+  try { db.exec(`ALTER TABLE admins ADD COLUMN ${col}`); } catch { /* already exists */ }
+}
+
+export type Admin = {
+  id: string; username: string; password_hash: string;
+  totp_secret: string | null; totp_enabled: number;
+  created_at: string;
+};
+export type ApiKey = {
+  id: string; prefix: string; key_hash: string; raw_key: string | null;
+  name: string | null; owner_email: string | null; active: number;
+  scopes: string; created_at: string; last_used_at: string | null;
+};
+export type Request = {
+  id: string; api_key_id: string | null; model: string; status: string;
+  tokens_in: number | null; tokens_out: number | null; latency_ms: number | null;
+  prompt_preview: string | null; error: string | null; created_at: string;
+};
 
 export default db;
