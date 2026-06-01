@@ -183,6 +183,19 @@ admin.get("/requests", c => {
   return c.json({ requests: rows });
 });
 
+// GET /admin/requests/:id — full details for a single request
+admin.get("/requests/:id", c => {
+  const id  = c.req.param("id");
+  const row = db.prepare(`
+    SELECT r.*, k.prefix AS key_prefix, k.name AS key_name, k.owner_email AS key_email
+    FROM requests r
+    LEFT JOIN api_keys k ON k.id = r.api_key_id
+    WHERE r.id = ?
+  `).get(id);
+  if (!row) return c.json({ error: "not found" }, 404);
+  return c.json({ request: row });
+});
+
 // ── Settings ──────────────────────────────────────────────────────────────────
 admin.get("/settings", c => {
   const rows = db.prepare("SELECT key, value FROM settings").all() as { key: string; value: string }[];

@@ -35,16 +35,18 @@ db.exec(`
   );
 
   CREATE TABLE IF NOT EXISTS requests (
-    id           TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
-    api_key_id   TEXT REFERENCES api_keys(id) ON DELETE SET NULL,
-    model        TEXT NOT NULL,
-    status       TEXT NOT NULL DEFAULT 'pending',
-    tokens_in    INTEGER,
-    tokens_out   INTEGER,
-    latency_ms   INTEGER,
-    prompt_preview TEXT,
-    error        TEXT,
-    created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+    id               TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    api_key_id       TEXT REFERENCES api_keys(id) ON DELETE SET NULL,
+    model            TEXT NOT NULL,
+    status           TEXT NOT NULL DEFAULT 'pending',
+    tokens_in        INTEGER,
+    tokens_out       INTEGER,
+    latency_ms       INTEGER,
+    prompt_preview   TEXT,
+    prompt_full      TEXT,
+    response_content TEXT,
+    error            TEXT,
+    created_at       TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
   CREATE TABLE IF NOT EXISTS settings (
@@ -54,10 +56,20 @@ db.exec(`
   );
 `);
 
-// Migrate existing admins table to add totp columns if they don't exist
-for (const col of ["totp_secret TEXT", "totp_enabled INTEGER NOT NULL DEFAULT 0"]) {
+// Migrations — add columns that may not exist in older databases
+for (const col of [
+  "totp_secret TEXT",
+  "totp_enabled INTEGER NOT NULL DEFAULT 0",
+]) {
   try { db.exec(`ALTER TABLE admins ADD COLUMN ${col}`); } catch { /* already exists */ }
 }
+for (const col of [
+  "prompt_full TEXT",
+  "response_content TEXT",
+]) {
+  try { db.exec(`ALTER TABLE requests ADD COLUMN ${col}`); } catch { /* already exists */ }
+}
+
 
 export type Admin = {
   id: string; username: string; password_hash: string;
@@ -72,7 +84,8 @@ export type ApiKey = {
 export type Request = {
   id: string; api_key_id: string | null; model: string; status: string;
   tokens_in: number | null; tokens_out: number | null; latency_ms: number | null;
-  prompt_preview: string | null; error: string | null; created_at: string;
+  prompt_preview: string | null; prompt_full: string | null;
+  response_content: string | null; error: string | null; created_at: string;
 };
 
 export default db;
