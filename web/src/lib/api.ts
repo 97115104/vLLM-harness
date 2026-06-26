@@ -21,8 +21,11 @@ export async function getSetupStatus() {
     status: "idle" | "pulling" | "starting" | "running" | "error";
     model: string | null;
     error: string | null;
+    progress: string | null;
     gpu_util: string | null;
     tunnel_url: string | null;
+    max_input_tokens?: number;
+    max_output_tokens?: number;
   }>;
 }
 
@@ -35,5 +38,8 @@ export async function getModels() {
 export interface Model {
   id: string; name: string; description: string;
   params: string; vram_gb: number; vram_int8_gb: number; context_k: number;
+  max_model_len: number; max_input_tokens: number; max_output_tokens: number;
   tags: string[]; no_auth: boolean;
+  cpu_required_gb?: number;
+  fits_cpu?: boolean;
 }

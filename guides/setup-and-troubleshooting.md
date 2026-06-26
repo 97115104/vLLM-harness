@@ -43,6 +43,7 @@ The script handles everything: installing Docker, NVIDIA drivers, pulling the vL
 - macOS 13+ with M1/M2/M3
 - 16+ GB unified memory
 - Docker Desktop installed and running
+- **Note:** Docker cannot access Apple Metal. vLLM runs in CPU mode via the `vllm-openai-cpu` image. Use TinyLlama or Phi-4 Mini for reasonable performance.
 
 ---
 
@@ -54,6 +55,8 @@ After the script starts the services, your browser opens to `http://localhost:30
 2. Models marked **HF token** require accepting terms on huggingface.co first
 3. Click **Deploy**. The system pulls the Docker image and starts vLLM
 4. Wait for the green "running" indicator (large models may take 5–15 min to download)
+
+On **Apple Silicon**, vLLM runs in CPU mode inside Docker (Metal is not available to containers). TinyLlama and Phi-4 Mini are the practical choices.
 
 **VRAM guidance:**
 | Model | VRAM needed |
@@ -79,7 +82,7 @@ API keys look like: `sk-studio-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`
 
 ## Using the API
 
-Inference Studio exposes an **OpenAI-compatible API**. Any client that works with OpenAI will work here. Just change the base URL and API key.
+Inference Studio exposes an **OpenAI-compatible API** at `/v1`. Any client that works with OpenAI will work here. Use model **`default`** to target the currently deployed model.
 
 ### cURL example
 
@@ -88,7 +91,7 @@ curl http://localhost:3000/v1/chat/completions \
   -H "Authorization: Bearer sk-studio-YOUR_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "mistralai/Mistral-7B-Instruct-v0.3",
+    "model": "default",
     "messages": [{"role": "user", "content": "Explain quantum entanglement simply."}],
     "stream": true
   }'
@@ -105,15 +108,17 @@ client = OpenAI(
 )
 
 response = client.chat.completions.create(
-    model="mistralai/Mistral-7B-Instruct-v0.3",
+    model="default",
     messages=[{"role": "user", "content": "Hello!"}],
 )
 print(response.choices[0].message.content)
 ```
 
+See [Using the API](using-the-api.md) for connecting external clients (Write Like Me, Continue, Cursor, etc.).
+
 ### Remote access via Cloudflare tunnel
 
-Replace `http://localhost:3000` with the tunnel URL shown on your dashboard:
+Replace `http://localhost:3000` with the tunnel URL shown on your dashboard. Use `{tunnel_url}/v1` as the base URL:
 
 ```bash
 curl https://xxx-yyy-zzz.trycloudflare.com/v1/chat/completions \
@@ -189,6 +194,16 @@ The API container manages the vLLM container. If it shows idle:
 2. Check if the vLLM container is running: `docker ps | grep vllm`
 3. Verify the vLLM health endpoint: `curl http://localhost:8000/health`
 
+### Service restart shows deploy progress instead of an error
+
+When you restart the services (`docker compose restart` or re-run `deploy-locally.sh`), the API detects that a model was previously deployed and automatically redeploys it. The dashboard shows the normal pulling → starting → running flow rather than an error. Large models may take several minutes to become healthy again.
+
+### External apps (Write Like Me, etc.) return 404
+
+The web **`/chat`** page and third-party OpenAI clients use different model names. `/chat` sends the deployed HuggingFace ID; apps like [Write Like Me](https://97115104.github.io/writelikeme/) should use model **`default`** and base URL **`http://localhost:3000/v1`** (not `/chat`).
+
+If you see `404 Endpoint not found` while `/chat` still works, see [Using the API — Troubleshooting](using-the-api.md#external-clients-write-like-me-open-webui-etc).
+
 ### Cloudflare tunnel fails to start
 
 The tunnel is optional. If it doesn't start:
@@ -219,7 +234,7 @@ Or set a new password via the API directly:
 # First get a token with the current password
 TOKEN=$(curl -s -X POST http://localhost:3001/admin/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"OLD_PASSWORD"}' | grep -oP '"token":"\K[^"]+')
+  -d '{"username":"admin","password":"OLD_PASSWORD"}' | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')
 
 # Then change it
 curl -X POST http://localhost:3001/admin/password \

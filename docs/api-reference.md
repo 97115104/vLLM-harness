@@ -10,8 +10,16 @@ Inference Studio exposes an OpenAI-compatible API. Any client that works with th
 
 ## Base URL
 
-- **Local**: `http://localhost:3000`
-- **Remote (tunnel)**: `https://xxx-yyy-zzz.trycloudflare.com`
+Use the **`/v1`** path for all API clients (OpenAI SDK, Write Like Me, Continue, etc.):
+
+| Where | Base URL |
+|-------|----------|
+| Local | `http://localhost:3000/v1` |
+| Remote (tunnel) | `https://xxx-yyy-zzz.trycloudflare.com/v1` |
+
+The root URL (`http://localhost:3000`) serves the web UI. Paths like `/chat` are pages, not the API.
+
+See [Using the API](../guides/using-the-api.md) for connecting third-party clients with model `default`.
 
 ## Authentication
 
@@ -32,6 +40,24 @@ Generate keys at `/admin` → **Keys** tab.
 Standard OpenAI chat completions format.
 
 **Request body:**
+```json
+{
+  "model": "default",
+  "messages": [
+    {"role": "system", "content": "You are a helpful assistant."},
+    {"role": "user",   "content": "What is 2+2?"}
+  ],
+  "stream": true,
+  "max_tokens": 1024,
+  "temperature": 0.7
+}
+```
+
+Use **`default`** to target the model currently deployed in the dashboard. Inference Studio resolves it to the deployed HuggingFace model ID before forwarding to vLLM. You can also pass the full HuggingFace model ID directly.
+
+`max_completion_tokens` is accepted and mapped to `max_tokens` for clients that send the newer OpenAI field name.
+
+**Alternate request (explicit model ID):**
 ```json
 {
   "model": "mistralai/Mistral-7B-Instruct-v0.3",
@@ -72,19 +98,29 @@ data: [DONE]
 
 ### `GET /v1/models`
 
-Returns the currently loaded model.
+Lists available models when a deployment is **running**. Always includes `default` (alias for the active model) plus the deployed HuggingFace ID.
 
 ```json
 {
   "object": "list",
-  "data": [{
-    "id": "mistralai/Mistral-7B-Instruct-v0.3",
-    "object": "model",
-    "created": 1234567890,
-    "owned_by": "vllm"
-  }]
+  "data": [
+    {
+      "id": "default",
+      "object": "model",
+      "created": 1234567890,
+      "owned_by": "vllm"
+    },
+    {
+      "id": "mistralai/Mistral-7B-Instruct-v0.3",
+      "object": "model",
+      "created": 1234567890,
+      "owned_by": "vllm"
+    }
+  ]
 }
 ```
+
+Returns an empty list if no model is deployed.
 
 ---
 
@@ -102,14 +138,14 @@ client = OpenAI(
 
 # Non-streaming
 response = client.chat.completions.create(
-    model="mistralai/Mistral-7B-Instruct-v0.3",
+    model="default",
     messages=[{"role": "user", "content": "Hello!"}],
 )
 print(response.choices[0].message.content)
 
 # Streaming
 stream = client.chat.completions.create(
-    model="mistralai/Mistral-7B-Instruct-v0.3",
+    model="default",
     messages=[{"role": "user", "content": "Count to 10"}],
     stream=True,
 )
@@ -129,7 +165,7 @@ const client = new OpenAI({
 });
 
 const stream = client.beta.chat.completions.stream({
-  model: "mistralai/Mistral-7B-Instruct-v0.3",
+  model: "default",
   messages: [{ role: "user", content: "Hello!" }],
 });
 
@@ -146,7 +182,7 @@ curl http://localhost:3000/v1/chat/completions \
   -H "Authorization: Bearer sk-studio-YOUR_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "mistralai/Mistral-7B-Instruct-v0.3",
+    "model": "default",
     "messages": [{"role": "user", "content": "Hello!"}]
   }'
 
@@ -156,7 +192,7 @@ curl http://localhost:3000/v1/chat/completions \
   -H "Content-Type: application/json" \
   --no-buffer \
   -d '{
-    "model": "mistralai/Mistral-7B-Instruct-v0.3",
+    "model": "default",
     "messages": [{"role": "user", "content": "Tell me a story"}],
     "stream": true
   }'
@@ -168,7 +204,7 @@ curl http://localhost:3000/v1/chat/completions \
 from langchain_openai import ChatOpenAI
 
 llm = ChatOpenAI(
-    model="mistralai/Mistral-7B-Instruct-v0.3",
+    model="default",
     openai_api_base="http://localhost:3000/v1",
     openai_api_key="sk-studio-YOUR_KEY",
     streaming=True,
@@ -242,7 +278,10 @@ Response:
   "status": "running",
   "model": "mistralai/Mistral-7B-Instruct-v0.3",
   "error": null,
+  "progress": null,
   "gpu_util": "0.9",
   "tunnel_url": "https://xxx-yyy-zzz.trycloudflare.com"
 }
 ```
+
+Status values: `idle`, `pulling`, `starting`, `running`, `error`.

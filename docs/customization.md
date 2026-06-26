@@ -154,4 +154,6 @@ const cmd = [
 | `VLLM_URL` | `http://localhost:8000` | Address of the vLLM container |
 | `DATA_DIR` | `./data` | SQLite database location |
 | `HF_CACHE` | `/tmp/hf_cache` | HuggingFace model cache inside the API container |
+| `GPU_TYPE` | `cpu` (or `nvidia`) | Set by `deploy-locally.sh`: `nvidia` for CUDA GPUs, `cpu` for Apple Silicon / no GPU |
+| `VLLM_IMAGE` | (auto) | Override Docker image (`vllm/vllm-openai:latest` or `vllm/vllm-openai-cpu:latest-*`) |
 | `DOCKER_NETWORK` | `inference-studio_default` | Docker network to attach vLLM to |

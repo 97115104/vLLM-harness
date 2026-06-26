@@ -1,11 +1,9 @@
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { adminAuth, type HonoVars } from "../middleware/auth.js";
-import { deployModel, stopVllm, getVllmStatus, vllmLogs } from "../lib/docker.js";
+import { deployModel, stopVllm, cancelDeployment, getVllmStatus, isDeploymentInProgress, recoverDeploymentIfNeeded, getModelTokenLimits, getTokenLimitsFromModelLen, vllmLogs, getDockerMemoryGb, getCpuRequiredMemoryGb, getCpuMemoryEstimate, syncVllmStatusIfReady, syncDeployStateFromContainer, modelFitsDockerCpu, getDockerMemoryForVllmGb, DOCKER_STUDIO_OVERHEAD_GB } from "../lib/docker.js";
 import db from "../db/index.js";
 
-// VLLM_URL from docker-compose: http://host.docker.internal:8000
-// host.docker.internal resolves to the Docker gateway, reaching the host-networked vLLM container
 const VLLM_URL = process.env.VLLM_URL || "http://inference-studio-vllm:8000";
 
 export const MODELS = [
@@ -116,31 +114,83 @@ export const MODELS = [
   },
 ];
 
+const GPU_TYPE = (process.env.GPU_TYPE || "cpu") as "nvidia" | "metal" | "cpu";
+
+function enrichModel<T extends { context_k: number }>(model: T) {
+  return { ...model, ...getModelTokenLimits(model.context_k, GPU_TYPE) };
+}
+
+function enrichStatus<T extends { model: string | null; max_model_len?: string | null }>(status: T) {
+  const catalog = status.model ? MODELS.find(m => m.id === status.model) : undefined;
+  if (catalog) return { ...status, ...getModelTokenLimits(catalog.context_k, GPU_TYPE) };
+  const len = Number(status.max_model_len);
+  if (len > 0) return { ...status, max_model_len: len, ...getTokenLimitsFromModelLen(len) };
+  return status;
+}
+
 const setup = new Hono<HonoVars>();
 
 setup.get("/status", async c => {
+  await syncDeployStateFromContainer();
+  await syncVllmStatusIfReady();
   const status = getVllmStatus();
+  const dockerMemGb = GPU_TYPE !== "nvidia" ? await getDockerMemoryGb() : null;
+  const withMem = dockerMemGb != null ? { ...status, docker_memory_gb: Math.round(dockerMemGb * 10) / 10 } : status;
 
-  // Also check vLLM health endpoint if "running"
-  if (status.status === "running") {
-    try {
-      const res = await fetch(`${VLLM_URL}/health`, { signal: AbortSignal.timeout(2000) });
-      if (!res.ok) {
-        return c.json({ ...status, status: "error", error: "vLLM health check failed" });
+  if (status.status === "running" && status.model) {
+    const healthy = await (async () => {
+      try {
+        const res = await fetch(`${VLLM_URL}/health`, { signal: AbortSignal.timeout(3000) });
+        return res.ok;
+      } catch {
+        return false;
       }
-    } catch {
-      return c.json({ ...status, status: "error", error: "vLLM unreachable" });
+    })();
+
+    if (!healthy) {
+      void recoverDeploymentIfNeeded();
+      const updated = getVllmStatus();
+      const tunnelUrl = db.prepare("SELECT value FROM settings WHERE key = 'tunnel_url'").get() as { value: string } | undefined;
+      return c.json({
+        ...enrichStatus(updated),
+        ...(dockerMemGb != null ? { docker_memory_gb: Math.round(dockerMemGb * 10) / 10 } : {}),
+        status: updated.status === "running" ? "starting" : updated.status,
+        error: "",
+        progress: updated.progress || "Restarting vLLM after service restart…",
+        tunnel_url: tunnelUrl?.value ?? null,
+      });
     }
   }
 
   const tunnelUrl = db.prepare("SELECT value FROM settings WHERE key = 'tunnel_url'").get() as { value: string } | undefined;
-  return c.json({ ...status, tunnel_url: tunnelUrl?.value ?? null });
+  return c.json({ ...enrichStatus(withMem), tunnel_url: tunnelUrl?.value ?? null });
 });
 
-setup.get("/models", c => c.json({ models: MODELS }));
+setup.get("/models", async c => {
+  const dockerMemGb = GPU_TYPE !== "nvidia" ? await getDockerMemoryGb() : null;
+  const vllmMemGb = dockerMemGb != null ? getDockerMemoryForVllmGb(dockerMemGb) : null;
+  const models = MODELS.map(m => {
+    const enriched = enrichModel(m);
+    if (dockerMemGb == null) return enriched;
+    const requiredGb = getCpuRequiredMemoryGb(m.params, m.vram_gb);
+    return {
+      ...enriched,
+      cpu_required_gb: requiredGb,
+      fits_cpu: modelFitsDockerCpu(dockerMemGb, m.params, m.vram_gb),
+    };
+  });
+  return c.json({
+    models,
+    ...(dockerMemGb != null ? {
+      docker_memory_gb: Math.round(dockerMemGb * 10) / 10,
+      docker_vllm_memory_gb: Math.round(vllmMemGb! * 10) / 10,
+      docker_studio_overhead_gb: DOCKER_STUDIO_OVERHEAD_GB,
+    } : {}),
+  });
+});
 
 setup.post("/deploy", adminAuth, async c => {
-  const body: { model?: string; hf_token?: string } = await c.req.json<{ model?: string; hf_token?: string }>().catch(() => ({}));
+  const body: { model?: string; hf_token?: string; replace?: boolean } = await c.req.json<{ model?: string; hf_token?: string; replace?: boolean }>().catch(() => ({}));
   if (!body.model) return c.json({ error: "model is required" }, 400);
 
   const found = MODELS.find(m => m.id === body.model);
@@ -148,6 +198,27 @@ setup.post("/deploy", adminAuth, async c => {
 
   if (!found.no_auth && !body.hf_token) {
     return c.json({ error: "This model requires a Hugging Face token", needs_hf_token: true }, 400);
+  }
+
+  const gpuType = process.env.GPU_TYPE || "cpu";
+
+  if (gpuType !== "nvidia") {
+    const dockerMemGb = await getDockerMemoryGb();
+    const est = getCpuMemoryEstimate(found.params, found.vram_gb);
+    const vllmMemGb = dockerMemGb != null ? getDockerMemoryForVllmGb(dockerMemGb) : null;
+
+    if (dockerMemGb != null && !modelFitsDockerCpu(dockerMemGb, found.params, found.vram_gb)) {
+      return c.json({
+        error: `${found.name} needs ~${est.totalGb}GB for vLLM (~${est.weightsGb}GB weights + ~${est.overheadGb}GB KV cache/runtime). Docker has ${dockerMemGb.toFixed(1)}GB total (~${vllmMemGb!.toFixed(1)}GB available after ~${DOCKER_STUDIO_OVERHEAD_GB}GB for Inference Studio). Increase Docker memory in Admin → Settings or try a smaller model.`,
+      }, 400);
+    }
+  }
+
+  if (isDeploymentInProgress()) {
+    if (!body.replace) {
+      return c.json({ error: "A deployment is already in progress", in_progress: true }, 409);
+    }
+    await cancelDeployment();
   }
 
   if (body.hf_token) {
@@ -160,6 +231,11 @@ setup.post("/deploy", adminAuth, async c => {
   });
 
   return c.json({ ok: true, message: "Deployment started", model: body.model });
+});
+
+setup.post("/cancel", adminAuth, async c => {
+  await cancelDeployment();
+  return c.json({ ok: true });
 });
 
 setup.post("/stop", adminAuth, async c => {

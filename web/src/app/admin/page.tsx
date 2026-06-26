@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import Navbar from "@/components/navbar";
 import Footer from "@/components/footer";
 import { toast } from "@/lib/toast";
+import type { Model } from "@/lib/api";
 
 type Tab = "models" | "keys" | "requests" | "settings";
 
@@ -25,10 +26,36 @@ interface RequestDetail {
   key_prefix: string | null; key_name: string | null; key_email: string | null;
 }
 interface SetupStatus {
-  status: string; model: string | null; error: string | null;
+  status: string; model: string | null; error: string | null; progress: string | null;
   gpu_util: string | null; tunnel_url: string | null;
+  max_input_tokens?: number; max_output_tokens?: number;
+  docker_memory_gb?: number | null;
 }
-interface Model { id: string; name: string; params: string; vram_gb: number; tags: string[]; no_auth: boolean; }
+interface DockerResources {
+  available: boolean;
+  socket_configured: boolean;
+  memory_gb: number | null;
+  memory_min_gb: number | null;
+  memory_max_gb: number | null;
+  active_memory_gb: number | null;
+  host_os: string | null;
+}
+
+function formatTokens(n: number): string {
+  return n >= 1000 ? `${(n / 1000).toFixed(n % 1000 === 0 ? 0 : 1)}K` : String(n);
+}
+
+async function waitForStudioReconnect(maxMs = 120_000): Promise<boolean> {
+  const deadline = Date.now() + maxMs;
+  while (Date.now() < deadline) {
+    try {
+      const r = await fetch("/api/health");
+      if (r.ok) return true;
+    } catch { /* studio restarting */ }
+    await new Promise(r => setTimeout(r, 3000));
+  }
+  return false;
+}
 
 // ── Tooltip wrapper ───────────────────────────────────────────────────────────
 function Tip({ label, children }: { label: string; children: React.ReactNode }) {
@@ -183,8 +210,15 @@ export default function AdminPage() {
   const [deployingModel,  setDeployingModel] = useState("");
   const [hfToken,         setHfToken]        = useState("");
   const [needsHf,         setNeedsHf]        = useState<string | null>(null);
+  const [cancelling,      setCancelling]     = useState(false);
   const [showLogs,        setShowLogs]       = useState(false);
   const [logs,            setLogs]           = useState<string[]>([]);
+
+  const [dockerRes,       setDockerRes]      = useState<DockerResources | null>(null);
+  const [dockerMemGb,     setDockerMemGb]    = useState(16);
+  const [dockerMemMsg,    setDockerMemMsg]   = useState("");
+  const [dockerMemBusy,   setDockerMemBusy]  = useState(false);
+  const [dockerRestart,   setDockerRestart]  = useState(true);
 
   // button loading states for key actions
   const [keyBusy,         setKeyBusy]        = useState<Record<string, string>>({});
@@ -209,11 +243,12 @@ export default function AdminPage() {
   const loadSetup      = useCallback(async () => { try { const r = await fetch("/api/setup/status"); setSetup(await r.json() as SetupStatus); } catch { /* silent */ } }, []);
   const loadModels     = useCallback(async () => { try { const r = await fetch("/api/setup/models"); const d = await r.json() as { models: Model[] }; setModels(d.models ?? []); } catch { /* silent */ } }, []);
   const loadTotpStatus = useCallback(async () => { if (!token) return; try { const r = await af("/api/admin/2fa/status"); const d = await r.json() as { enabled: boolean }; setTotpEnabled(d.enabled); } catch { /* silent */ } }, [token, af]);
+  const loadDockerRes  = useCallback(async () => { if (!token) return; try { const r = await af("/api/admin/docker/resources"); if (!r.ok) return; const d = await r.json() as DockerResources; setDockerRes(d); if (d.memory_gb != null) setDockerMemGb(Math.max(d.memory_gb, 12)); } catch { /* silent */ } }, [token, af]);
 
   useEffect(() => {
     if (!token) return;
-    loadKeys(); loadRequests(); loadSetup(); loadModels(); loadTotpStatus();
-  }, [token, loadKeys, loadRequests, loadSetup, loadModels, loadTotpStatus]);
+    loadKeys(); loadRequests(); loadSetup(); loadModels(); loadTotpStatus(); loadDockerRes();
+  }, [token, loadKeys, loadRequests, loadSetup, loadModels, loadTotpStatus, loadDockerRes]);
 
   useEffect(() => {
     if (!["pulling", "starting"].includes(setupStatus?.status ?? "")) return;
@@ -240,7 +275,7 @@ export default function AdminPage() {
 
   const refresh = async () => {
     setRefreshing(true);
-    await Promise.all([loadKeys(), loadRequests(), loadSetup(), loadModels(), loadTotpStatus()]);
+    await Promise.all([loadKeys(), loadRequests(), loadSetup(), loadModels(), loadTotpStatus(), loadDockerRes()]);
     setRefreshing(false);
     toast("Refreshed", "info");
   };
@@ -341,17 +376,76 @@ export default function AdminPage() {
     } catch (e) { toast(String(e), "err"); }
   };
 
-  const deployModel = async (modelId: string) => {
+  const deployModel = async (modelId: string, replace = false) => {
     setError(""); setDeployingModel(modelId); setNeedsHf(null);
     try {
-      const r = await af("/api/setup/deploy", { method: "POST", body: JSON.stringify({ model: modelId, hf_token: hfToken || undefined }) });
+      const r = await af("/api/setup/deploy", { method: "POST", body: JSON.stringify({ model: modelId, hf_token: hfToken || undefined, replace }) });
       const d = await r.json() as { error?: string; needs_hf_token?: boolean; ok?: boolean };
       if (d.needs_hf_token) { setNeedsHf(modelId); setDeployingModel(""); return; }
       if (d.error) { setError(d.error); toast(d.error, "err"); setDeployingModel(""); return; }
       toast(`Deploying ${modelId.split("/").pop()}…`, "info");
+      setShowLogs(false);
       loadSetup();
     } catch (e) { setError(String(e)); toast(String(e), "err"); }
     finally { if (!needsHf) setDeployingModel(""); }
+  };
+
+  const applyDockerMemory = async () => {
+    setDockerMemMsg(""); setDockerMemBusy(true);
+    try {
+      const r = await af("/api/admin/docker/memory", {
+        method: "POST",
+        body: JSON.stringify({ memory_gb: dockerMemGb, restart: dockerRestart }),
+      });
+      const d = await r.json() as { ok?: boolean; error?: string; message?: string; restarting?: boolean };
+      if (d.error) { setDockerMemMsg(d.error); toast(d.error, "err"); return; }
+
+      if (d.restarting) {
+        setDockerMemMsg(d.message ?? "Docker is restarting…");
+        toast(d.message ?? "Docker is restarting", "info");
+        const back = await waitForStudioReconnect();
+        if (!back) {
+          setDockerMemMsg("Docker restarted but Inference Studio did not come back in time. Refresh the page in a minute.");
+          toast("Studio did not reconnect — refresh shortly", "err");
+          return;
+        }
+        setDockerMemMsg("Docker memory updated.");
+        toast("Docker memory updated", "ok");
+        await Promise.all([loadDockerRes(), loadSetup(), loadModels()]);
+        return;
+      }
+
+      setDockerMemMsg(d.message ?? "Docker memory updated.");
+      toast(d.message ?? "Docker memory updated", "ok");
+      await Promise.all([loadDockerRes(), loadSetup(), loadModels()]);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (dockerRestart) {
+        setDockerMemMsg("Docker is restarting — waiting for Inference Studio to come back…");
+        const back = await waitForStudioReconnect();
+        if (back) {
+          setDockerMemMsg("Docker memory updated.");
+          toast("Docker memory updated", "ok");
+          await Promise.all([loadDockerRes(), loadSetup(), loadModels()]);
+          return;
+        }
+      }
+      setDockerMemMsg(msg);
+      toast(msg, "err");
+    } finally {
+      setDockerMemBusy(false);
+    }
+  };
+
+  const cancelDeploy = async () => {
+    setCancelling(true);
+    try {
+      await af("/api/setup/cancel", { method: "POST" });
+      setShowLogs(false);
+      loadSetup();
+      toast("Deployment cancelled", "ok");
+    } catch (e) { toast(String(e), "err"); }
+    finally { setCancelling(false); }
   };
 
   const stopModel = async () => {
@@ -363,7 +457,7 @@ export default function AdminPage() {
   if (!token) return null;
 
   const S: Record<string, string> = { running: "#00e676", error: "#ff4757", pulling: "#ccff00", starting: "#ccff00", idle: "#444" };
-  const deployBusy = !!deployingModel || ["pulling", "starting"].includes(setupStatus?.status ?? "");
+  const deployInProgress = ["pulling", "starting"].includes(setupStatus?.status ?? "");
 
   return (
     <>
@@ -412,6 +506,14 @@ export default function AdminPage() {
                     <span className="w-2 h-2 rounded-full" style={{ background: S[setupStatus.status] ?? "#444" }} />
                     <span className="text-sm font-bold" style={{ color: S[setupStatus.status] ?? "#888" }}>{setupStatus.status}</span>
                     {setupStatus.model && <span className="text-xs font-mono" style={{ color: "#666" }}>{setupStatus.model}</span>}
+                    {deployInProgress && (
+                      <Tip label="Cancel the in-progress deployment">
+                        <button onClick={cancelDeploy} disabled={cancelling} className="ml-auto text-xs px-2 py-1"
+                          style={{ border: "1px solid #444", color: cancelling ? "#555" : "#888", cursor: cancelling ? "not-allowed" : "pointer" }}>
+                          {cancelling ? "Cancelling…" : "Cancel"}
+                        </button>
+                      </Tip>
+                    )}
                     {setupStatus.status === "running" && (
                       <Tip label="Stop the running model">
                         <button onClick={stopModel} className="ml-auto text-xs px-2 py-1"
@@ -421,7 +523,15 @@ export default function AdminPage() {
                       </Tip>
                     )}
                   </div>
+                  {setupStatus.progress && deployInProgress && (
+                    <div className="text-xs mt-1 font-mono" style={{ color: "#ccff00" }}>{setupStatus.progress}</div>
+                  )}
                   {setupStatus.error && <div className="text-xs mt-1" style={{ color: "#ff4757" }}>{setupStatus.error}</div>}
+                  {setupStatus.status === "running" && setupStatus.max_input_tokens != null && (
+                    <div className="text-xs mt-2 font-mono" style={{ color: "#555" }}>
+                      Max tokens: {setupStatus.max_input_tokens.toLocaleString()} in · {setupStatus.max_output_tokens?.toLocaleString() ?? "—"} out
+                    </div>
+                  )}
                   {["pulling", "starting"].includes(setupStatus.status) && (
                     <button onClick={() => setShowLogs(!showLogs)} className="mt-3 text-xs" style={{ color: "#555" }}>
                       {showLogs ? "Hide" : "Show"} logs
@@ -450,7 +560,8 @@ export default function AdminPage() {
               <div className="flex flex-col gap-2">
                 {models.map(m => {
                   const isActive = setupStatus?.model === m.id && setupStatus.status === "running";
-                  const isDeploying = deployingModel === m.id;
+                  const isDeploying = deployingModel === m.id || (deployInProgress && setupStatus?.model === m.id);
+                  const isCurrentDeploy = deployInProgress && setupStatus?.model === m.id;
                   return (
                     <div key={m.id} className="flex items-center gap-3 p-3"
                       style={{ background: "#0f0f0f", border: "1px solid #1e1e1e" }}>
@@ -466,19 +577,31 @@ export default function AdminPage() {
                       <div className="text-xs text-right shrink-0" style={{ color: "#555" }}>
                         <div>{m.params}</div>
                         <div style={{ color: m.vram_gb >= 40 ? "#ff4757" : m.vram_gb >= 16 ? "#ccff00" : "#00e676" }}>{m.vram_gb}GB</div>
+                        <div className="text-[10px] mt-0.5 font-mono" style={{ color: "#444" }}>
+                          {formatTokens(m.max_input_tokens)} in · {formatTokens(m.max_output_tokens)} out
+                        </div>
                       </div>
-                      <Tip label={isActive ? "Already running" : deployBusy && !isDeploying ? "Another deployment in progress" : `Deploy ${m.name}`}>
+                      <Tip label={
+                        isActive ? "Already running"
+                          : isCurrentDeploy ? "Currently deploying"
+                          : deployInProgress ? `Replace current deployment with ${m.name}`
+                          : `Deploy ${m.name}`
+                      }>
                         <button
-                          onClick={() => { if (isActive || deployBusy) return; setNeedsHf(null); deployModel(m.id); }}
-                          disabled={deployBusy}
+                          onClick={() => {
+                            if (isActive) return;
+                            setNeedsHf(null);
+                            deployModel(m.id, deployInProgress);
+                          }}
+                          disabled={isActive || isCurrentDeploy}
                           style={{
-                            fontSize: "12px", padding: "5px 12px", cursor: isActive || deployBusy ? "not-allowed" : "pointer",
+                            fontSize: "12px", padding: "5px 12px", cursor: isActive || isCurrentDeploy ? "not-allowed" : "pointer",
                             background: isActive ? "rgba(0,230,118,0.1)" : "transparent",
                             border: `1px solid ${isActive ? "rgba(0,230,118,0.4)" : "#2a2a2a"}`,
                             color: isActive ? "#00e676" : isDeploying ? "#ccff00" : "#888",
                             transition: "all 0.15s",
                           }}>
-                          {isDeploying ? "⋯" : isActive ? "running" : "deploy"}
+                          {isDeploying ? "⋯" : isActive ? "running" : deployInProgress ? "switch" : "deploy"}
                         </button>
                       </Tip>
                     </div>
@@ -653,6 +776,69 @@ export default function AdminPage() {
           {/* ── SETTINGS ── */}
           {tab === "settings" && (
             <div className="flex flex-col gap-6 max-w-md">
+              {/* Docker memory */}
+              <div className="p-4" style={{ background: "#0f0f0f", border: "1px solid #1e1e1e" }}>
+                <div className="text-xs font-bold mb-3" style={{ color: "#ccff00" }}>Docker memory</div>
+                {dockerRes?.available ? (
+                  <div className="flex flex-col gap-3">
+                    <div className="text-xs" style={{ color: "#888" }}>
+                      Allocated: <span style={{ color: "#e8e8e8" }}>{dockerRes.memory_gb ?? "?"} GB</span>
+                      {dockerRes.active_memory_gb != null && (
+                        <> · Active: <span style={{ color: "#e8e8e8" }}>{dockerRes.active_memory_gb} GB</span></>
+                      )}
+                      {dockerRes.memory_max_gb != null && (
+                        <> · Max: <span style={{ color: "#666" }}>{dockerRes.memory_max_gb} GB</span></>
+                      )}
+                    </div>
+                    <div>
+                      <label className="block text-xs mb-1" style={{ color: "#555" }}>Memory limit (GB)</label>
+                      <input
+                        type="number"
+                        min={dockerRes.memory_min_gb ?? 4}
+                        max={dockerRes.memory_max_gb ?? 64}
+                        step={1}
+                        value={dockerMemGb}
+                        onChange={e => setDockerMemGb(Number(e.target.value))}
+                        className="w-full px-3 py-2 text-sm focus:outline-none"
+                        style={{ background: "#0a0a0a", border: "1px solid #2a2a2a", color: "#e8e8e8" }}
+                      />
+                    </div>
+                    <label className="flex items-center gap-2 text-xs cursor-pointer" style={{ color: "#666" }}>
+                      <input type="checkbox" checked={dockerRestart} onChange={e => setDockerRestart(e.target.checked)} />
+                      Restart Docker engine after applying (recommended)
+                    </label>
+                    <button
+                      onClick={applyDockerMemory}
+                      disabled={dockerMemBusy}
+                      style={{
+                        padding: "8px 16px", fontSize: "14px", fontWeight: 700,
+                        background: dockerMemBusy ? "#1a1a1a" : "#ccff00",
+                        color: dockerMemBusy ? "#444" : "#000",
+                        cursor: dockerMemBusy ? "not-allowed" : "pointer",
+                        border: "none",
+                      }}>
+                      {dockerMemBusy ? (dockerMemMsg.includes("restarting") ? "Restarting Docker…" : "Applying…") : "Apply memory limit"}
+                    </button>
+                    <div className="text-xs" style={{ color: "#444" }}>
+                      Phi-4 Mini needs ~9GB. Llama 3.2 3B needs ~7.5GB. Increase memory here instead of opening Docker Desktop manually.
+                    </div>
+                    {dockerMemMsg && (
+                      <div className="text-xs" style={{
+                        color: dockerMemMsg.includes("updated") ? "#00e676"
+                          : dockerMemMsg.includes("restarting") || dockerMemMsg.includes("Restarting") ? "#ccff00"
+                          : "#ff4757",
+                      }}>{dockerMemMsg}</div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-xs" style={{ color: "#555" }}>
+                    {dockerRes?.socket_configured === false
+                      ? <>Not available — re-run <code style={{ color: "#666" }}>bash deploy-locally.sh</code> with Docker Desktop running (macOS/Linux Desktop only).</>
+                      : "Loading Docker Desktop settings…"}
+                  </div>
+                )}
+              </div>
+
               {/* Tunnel */}
               <div className="p-4" style={{ background: "#0f0f0f", border: "1px solid #1e1e1e" }}>
                 <div className="text-xs font-bold mb-3" style={{ color: "#ccff00" }}>Cloudflare tunnel</div>

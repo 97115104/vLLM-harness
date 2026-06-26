@@ -21,6 +21,9 @@ Every package installation shows a named spinner so you know exactly what is bei
    ✓  Installing nvidia-container-toolkit
 ```
 
+### vLLM model deployment
+Models are served in a dynamically spawned vLLM Docker container. The API manages the container lifecycle (pull image → start → health check) and tracks deployment progress in SQLite. On service restart, if a model was previously deployed, the API automatically redeploys it.
+
 ### GPU memory self-healing
 vLLM is started at `--gpu-memory-utilization 0.90`. If the container logs show an OOM error within the first 120 seconds, the system:
 1. Stops the container
@@ -43,10 +46,11 @@ The current utilization is shown on the dashboard and in the admin panel.
 
 ### Dashboard (`/`)
 - Shows current model, GPU utilization, and today's request count
-- Displays the active Cloudflare tunnel URL with a copy button
-- Quick-start API snippet
+- Displays the active Cloudflare tunnel URL with a copy button and `{tunnel_url}/v1` API base URL guidance
+- Quick-start API snippet (uses tunnel URL when active, model `default`)
 - Recent request log (for admins)
 - **Model picker wizard** when no model is running: shows top 5 with VRAM requirements, expandable to full list
+- **Deploy progress view** during pulling/starting, with cancel support
 
 ### Chat (`/chat`)
 - Full-page streaming chat interface
@@ -69,7 +73,7 @@ Password-protected admin panel with four tabs:
 
 **Models tab**
 - Full list of available models with params and VRAM requirements
-- Deploy / stop buttons
+- Deploy / stop buttons with cancel during in-progress deployments
 - Live deployment status (pulling → starting → running)
 - vLLM log streaming (SSE)
 - HF token input for gated models
@@ -98,7 +102,10 @@ All `/v1/*` requests require `Authorization: Bearer <api-key>`. API keys are val
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/v1/chat/completions` | POST | Chat completion (streaming supported) |
-| `/v1/models` | GET | List loaded models |
+| `/v1/completions` | POST | Legacy text completion |
+| `/v1/models` | GET | List loaded models (`default` + deployed HF ID) |
+
+The `default` model alias resolves to whatever model is currently deployed. `max_completion_tokens` is mapped to `max_tokens` automatically.
 
 ### Admin endpoints (JWT)
 | Endpoint | Method | Description |
@@ -118,6 +125,7 @@ All `/v1/*` requests require `Authorization: Bearer <api-key>`. API keys are val
 | `/api/setup/status` | GET | vLLM status + tunnel URL |
 | `/api/setup/models` | GET | Available model list |
 | `/api/setup/deploy` | POST | Deploy a model |
+| `/api/setup/cancel` | POST | Cancel in-progress deployment |
 | `/api/setup/stop` | POST | Stop vLLM |
 | `/api/setup/logs` | GET | SSE stream of vLLM container logs |
 | `/api/setup/tunnel` | POST | Register tunnel URL |

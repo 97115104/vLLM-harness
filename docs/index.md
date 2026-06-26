@@ -24,8 +24,9 @@ The script installs every dependency, detects your GPU, pulls the model, and ope
 - **Chat interface**: polished dark UI, streaming responses, conversation history
 - **Voice interface**: generate responses and read them aloud with browser TTS
 - **Admin dashboard**: create/manage API keys, view request logs, change passwords
-- **OpenAI-compatible API**: works with any client that supports the OpenAI SDK
+- **OpenAI-compatible API**: works with any client that supports the OpenAI SDK; use model `default` for the active deployment
 - **Cloudflare Quick Tunnel**: instant remote access, no account required, no port forwarding
+- **Auto-recovery on restart**: if a model was deployed before a service restart, the API automatically redeploys it instead of showing an error
 - **Self-healing OOM**: automatically adjusts GPU memory utilization if the model doesn't fit
 
 ---
@@ -48,7 +49,7 @@ The script installs every dependency, detects your GPU, pulls the model, and ope
 | Ubuntu 20.04+ / Debian 11+ | NVIDIA (CUDA) | ✅ Full support |
 | Arch Linux | NVIDIA (CUDA) | ✅ Full support |
 | Fedora 36+ / RHEL 9+ | NVIDIA (CUDA) | ✅ Full support |
-| macOS 13+ (Apple Silicon) | Metal (experimental) | ⚠ Experimental |
+| macOS 13+ (Apple Silicon) | CPU (Docker) | ✅ Works — Docker cannot use Metal; uses `vllm-openai-cpu` image |
 | Any (CPU fallback) | None | ✅ Slow but works |
 
 ---
@@ -67,6 +68,7 @@ deploy-locally.sh
         └── inference-studio-api   (Hono, port 3001)
               ├── SQLite DB      (API keys, requests, settings)
               ├── Docker socket  (manages vLLM container)
+              ├── Auto-recovery  (redeploys last model on restart)
               └── vLLM proxy     (OpenAI-compatible /v1/*)
 
       inference-studio-vllm      (started on demand, port 8000)

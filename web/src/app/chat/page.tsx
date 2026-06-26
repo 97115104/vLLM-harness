@@ -7,24 +7,47 @@ type Message = { role: Role; content: string; id: string };
 let _id = 0;
 const uid = () => `m${++_id}`;
 
-function Bubble({ msg }: { msg: Message }) {
-  const isUser = msg.role === "user";
+function ThinkingIndicator() {
   return (
-    <div className={`flex gap-3 ${isUser ? "flex-row-reverse" : ""}`}>
+    <span className="flex items-center gap-2" style={{ color: "#666" }}>
+      <span className="text-sm">Thinking</span>
+      <span className="thinking-dots flex items-center gap-1">
+        <span /><span /><span />
+      </span>
+    </span>
+  );
+}
+
+function Bubble({ msg, loading, streaming }: { msg: Message; loading?: boolean; streaming?: boolean }) {
+  const isUser = msg.role === "user";
+  const isError = !isUser && msg.content.startsWith("[error]");
+  return (
+    <div className={`flex gap-3 fade-in ${isUser ? "flex-row-reverse" : ""}`}>
       <div className="w-6 h-6 rounded-full shrink-0 flex items-center justify-center text-[10px] font-bold mt-0.5"
-        style={{ background: isUser ? "rgba(204,255,0,0.15)" : "#1a1a1a", color: isUser ? "#ccff00" : "#666" }}>
+        style={{ background: isUser ? "rgba(204,255,0,0.15)" : loading ? "rgba(204,255,0,0.08)" : "#1a1a1a", color: isUser ? "#ccff00" : loading ? "#ccff00" : "#666" }}>
         {isUser ? "U" : "AI"}
       </div>
       <div className={`max-w-[80%] px-4 py-3 text-sm leading-relaxed prose ${isUser ? "text-right" : ""}`}
         style={{
-          background: isUser ? "rgba(204,255,0,0.06)" : "#0f0f0f",
-          border: `1px solid ${isUser ? "rgba(204,255,0,0.15)" : "#1a1a1a"}`,
+          background: isUser ? "rgba(204,255,0,0.06)" : loading ? "rgba(204,255,0,0.03)" : "#0f0f0f",
+          border: `1px solid ${isUser ? "rgba(204,255,0,0.15)" : loading ? "rgba(204,255,0,0.2)" : "#1a1a1a"}`,
           borderRadius: "2px",
-          color: "#e8e8e8",
+          color: isError ? "#ff4757" : "#e8e8e8",
           whiteSpace: "pre-wrap",
           wordBreak: "break-word",
-        }}
-        dangerouslySetInnerHTML={{ __html: msg.content.replace(/</g, "&lt;").replace(/>/g, "&gt;") }} />
+          minHeight: loading ? "2.5rem" : undefined,
+        }}>
+        {loading ? (
+          <ThinkingIndicator />
+        ) : (
+          <>
+            {msg.content}
+            {streaming && (
+              <span className="stream-cursor inline-block ml-0.5" style={{ color: "#ccff00" }}>▋</span>
+            )}
+          </>
+        )}
+      </div>
     </div>
   );
 }
@@ -34,7 +57,9 @@ export default function ChatPage() {
   const [input, setInput]           = useState("");
   const [apiKey, setApiKey]         = useState(() => typeof window !== "undefined" ? localStorage.getItem("chat_api_key") ?? "" : "");
   const [model, setModel]           = useState("");
+  const [maxTokens, setMaxTokens]   = useState(512);
   const [streaming, setStreaming]   = useState(false);
+  const [streamingId, setStreamingId] = useState<string | null>(null);
   const [settingsOpen, setSettings] = useState(false);
   const [keyDraft, setKeyDraft]     = useState(apiKey);
   const [system, setSystem]         = useState("You are a helpful assistant.");
@@ -42,12 +67,14 @@ export default function ChatPage() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const abortRef  = useRef<AbortController | null>(null);
 
-  // Auto-detect active model
+  // Auto-detect active model and context limit
   useEffect(() => {
     fetch("/api/setup/status")
       .then(r => r.json())
-      .then((d: { status: string; model: string | null }) => {
+      .then((d: { status: string; model: string | null; max_model_len?: string | null }) => {
         if (d.status === "running" && d.model) setModel(d.model);
+        const len = Number(d.max_model_len) || 1024;
+        setMaxTokens(Math.max(64, Math.min(512, len - 256)));
       }).catch(() => {});
   }, []);
 
@@ -73,6 +100,7 @@ export default function ChatPage() {
 
     setMessages(prev => [...prev, userMsg, assistantMsg]);
     setStreaming(true);
+    setStreamingId(assistantMsg.id);
 
     const ctrl = new AbortController();
     abortRef.current = ctrl;
@@ -90,7 +118,7 @@ export default function ChatPage() {
             ...history.filter(m => m.role !== "system").map(m => ({ role: m.role, content: m.content })),
           ],
           stream: true,
-          max_tokens: 2048,
+          max_tokens: maxTokens,
         }),
       });
 
@@ -133,11 +161,12 @@ export default function ChatPage() {
       }
     } finally {
       setStreaming(false);
+      setStreamingId(null);
       abortRef.current = null;
     }
-  }, [input, streaming, apiKey, model, messages, system]);
+  }, [input, streaming, apiKey, model, messages, system, maxTokens]);
 
-  const stop = () => { abortRef.current?.abort(); setStreaming(false); };
+  const stop = () => { abortRef.current?.abort(); setStreaming(false); setStreamingId(null); };
 
   const handleKey = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
@@ -224,7 +253,14 @@ export default function ChatPage() {
             )}
           </div>
         ) : (
-          messages.map(m => <Bubble key={m.id} msg={m} />)
+          messages.map(m => (
+            <Bubble
+              key={m.id}
+              msg={m}
+              loading={streamingId === m.id && m.role === "assistant" && !m.content}
+              streaming={streamingId === m.id && m.role === "assistant" && !!m.content}
+            />
+          ))
         )}
         <div ref={bottomRef} />
       </div>

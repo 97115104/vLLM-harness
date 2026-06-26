@@ -3,6 +3,8 @@ import { createHash, randomBytes } from "crypto";
 import { authenticator } from "otplib";
 import { adminAuth, signAdminToken, type HonoVars } from "../middleware/auth.js";
 import { hashPassword, verifyPassword } from "../lib/password.js";
+import { getDockerMemoryGb } from "../lib/docker.js";
+import { getDockerDesktopResources, isDockerDesktopAvailable, applyDockerDesktopMemoryInBackground } from "../lib/docker-desktop.js";
 import db from "../db/index.js";
 import type { Admin, ApiKey, Request } from "../db/index.js";
 
@@ -194,6 +196,67 @@ admin.get("/requests/:id", c => {
   `).get(id);
   if (!row) return c.json({ error: "not found" }, 404);
   return c.json({ request: row });
+});
+
+// ── Docker Desktop resources (macOS / Docker Desktop) ───────────────────────────
+admin.get("/docker/resources", async c => {
+  const [desktop, dockerMemGb] = await Promise.all([
+    getDockerDesktopResources(),
+    getDockerMemoryGb(),
+  ]);
+
+  return c.json({
+    ...desktop,
+    memory_gb: desktop.memory_mib != null ? Math.round(desktop.memory_mib / 1024 * 10) / 10 : null,
+    memory_min_gb: desktop.memory_min_mib != null ? Math.round(desktop.memory_min_mib / 1024 * 10) / 10 : null,
+    memory_max_gb: desktop.memory_max_mib != null ? Math.round(desktop.memory_max_mib / 1024 * 10) / 10 : null,
+    active_memory_gb: dockerMemGb != null ? Math.round(dockerMemGb * 10) / 10 : null,
+    socket_configured: isDockerDesktopAvailable(),
+  });
+});
+
+admin.post("/docker/memory", async c => {
+  if (!isDockerDesktopAvailable()) {
+    return c.json({
+      error: "Docker Desktop settings API is not available. Re-run deploy-locally.sh with Docker Desktop running.",
+    }, 503);
+  }
+
+  const body = await c.req.json<{ memory_gb?: number; restart?: boolean }>().catch(() => ({} as { memory_gb?: number; restart?: boolean }));
+  const memoryGb = body.memory_gb;
+  if (memoryGb == null || !Number.isFinite(memoryGb)) {
+    return c.json({ error: "memory_gb is required" }, 400);
+  }
+
+  const desktop = await getDockerDesktopResources();
+  if (!desktop.available || desktop.memory_min_mib == null || desktop.memory_max_mib == null) {
+    return c.json({ error: "Could not read Docker Desktop memory limits" }, 503);
+  }
+
+  const memoryMiB = Math.round(memoryGb * 1024);
+  if (memoryMiB < desktop.memory_min_mib || memoryMiB > desktop.memory_max_mib) {
+    const minGb = Math.ceil(desktop.memory_min_mib / 1024);
+    const maxGb = Math.floor(desktop.memory_max_mib / 1024);
+    return c.json({ error: `memory_gb must be between ${minGb} and ${maxGb}` }, 400);
+  }
+
+  try {
+    const doRestart = body.restart !== false;
+    applyDockerDesktopMemoryInBackground(memoryMiB, doRestart);
+
+    return c.json({
+      ok: true,
+      memory_gb: Math.round(memoryMiB / 1024 * 10) / 10,
+      active_memory_gb: null,
+      restart_required: doRestart,
+      restarting: doRestart,
+      message: doRestart
+        ? "Applying Docker memory change. The engine will restart — Inference Studio will reconnect in about a minute."
+        : "Applying Docker memory change. Refresh in a moment to see the updated limit.",
+    });
+  } catch (e) {
+    return c.json({ error: e instanceof Error ? e.message : String(e) }, 500);
+  }
 });
 
 // ── Settings ──────────────────────────────────────────────────────────────────

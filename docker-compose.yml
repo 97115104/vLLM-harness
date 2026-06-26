@@ -14,12 +14,12 @@ services:
     environment:
       - PORT=3001
       - DATA_DIR=/app/data
-      # vLLM container is attached to the compose network, accessible by container name
-      - VLLM_URL=http://inference-studio-vllm:8000
       - VLLM_PORT=8000
       - HF_CACHE=/tmp/hf_cache
       # GPU_TYPE is set by deploy-locally.sh: nvidia | metal | cpu
       - GPU_TYPE=${GPU_TYPE:-cpu}
+      - VLLM_URL=${VLLM_URL:-http://inference-studio-vllm:8000}
+      - VLLM_IMAGE=${VLLM_IMAGE:-}
       # Admin credentials — set in .env
       - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-password}

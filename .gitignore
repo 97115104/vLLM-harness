@@ -3,6 +3,7 @@ node_modules/
 dist/
 data/
 .env
+docker-compose.override.yml
 *.local
 
 # OS

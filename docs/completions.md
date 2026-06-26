@@ -15,7 +15,15 @@ Inference Studio exposes a fully **OpenAI-compatible API** at `/v1`. Any client 
 | Local | `http://localhost:3000/v1` |
 | Public (tunnel) | `https://xxx-yyy-zzz.trycloudflare.com/v1` |
 
-The tunnel URL is shown on your dashboard and in **Admin → Settings**. It changes each time the deploy script restarts.
+The tunnel URL is shown on your dashboard and in **Admin → Settings**. It changes each time the deploy script restarts. Use `{tunnel_url}/v1` as the API base URL for remote clients.
+
+---
+
+## Model name: `default`
+
+Use **`default`** as the model name in API requests to always target whatever model is currently deployed—you do not need the HuggingFace ID. Inference Studio resolves `default` to the deployed model before forwarding to vLLM.
+
+See [Using the API](../guides/using-the-api.md) for connecting third-party clients like Write Like Me.
 
 ---
 
@@ -56,7 +64,7 @@ curl http://localhost:3000/v1/chat/completions \
   -H "Authorization: Bearer sk-studio-YOUR_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "microsoft/Phi-4-mini-instruct",
+    "model": "default",
     "messages": [
       {"role": "system", "content": "You are a helpful assistant."},
       {"role": "user",   "content": "What is the capital of France?"}
@@ -72,7 +80,7 @@ curl http://localhost:3000/v1/chat/completions \
   "id": "chatcmpl-abc123",
   "object": "chat.completion",
   "created": 1234567890,
-  "model": "microsoft/Phi-4-mini-instruct",
+  "model": "default",
   "choices": [{
     "index": 0,
     "message": {
@@ -97,7 +105,7 @@ curl http://localhost:3000/v1/chat/completions \
   -H "Content-Type: application/json" \
   --no-buffer \
   -d '{
-    "model": "microsoft/Phi-4-mini-instruct",
+    "model": "default",
     "messages": [{"role": "user", "content": "Write a haiku about the sea."}],
     "stream": true,
     "max_tokens": 80
@@ -132,7 +140,7 @@ curl http://localhost:3000/v1/completions \
   -H "Authorization: Bearer sk-studio-YOUR_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "microsoft/Phi-4-mini-instruct",
+    "model": "default",
     "prompt": "The theory of relativity was developed by",
     "max_tokens": 30,
     "temperature": 0.3
@@ -145,7 +153,7 @@ curl http://localhost:3000/v1/completions \
 
 `GET /v1/models`
 
-Returns the currently loaded model.
+Returns the currently loaded model(s). Always includes `default` plus the deployed HuggingFace ID when a model is running.
 
 ```bash
 curl http://localhost:3000/v1/models \
@@ -156,12 +164,20 @@ curl http://localhost:3000/v1/models \
 ```json
 {
   "object": "list",
-  "data": [{
-    "id": "microsoft/Phi-4-mini-instruct",
-    "object": "model",
-    "created": 1234567890,
-    "owned_by": "vllm"
-  }]
+  "data": [
+    {
+      "id": "default",
+      "object": "model",
+      "created": 1234567890,
+      "owned_by": "vllm"
+    },
+    {
+      "id": "microsoft/Phi-4-mini-instruct",
+      "object": "model",
+      "created": 1234567890,
+      "owned_by": "vllm"
+    }
+  ]
 }
 ```
 
@@ -181,7 +197,7 @@ client = OpenAI(
 
 # Non-streaming
 response = client.chat.completions.create(
-    model="microsoft/Phi-4-mini-instruct",
+    model="default",
     messages=[
         {"role": "system", "content": "You are a concise assistant."},
         {"role": "user",   "content": "Explain black holes in one sentence."},
@@ -192,7 +208,7 @@ print(response.choices[0].message.content)
 
 # Streaming
 with client.chat.completions.stream(
-    model="microsoft/Phi-4-mini-instruct",
+    model="default",
     messages=[{"role": "user", "content": "Count slowly from 1 to 5."}],
     max_tokens=50,
 ) as stream:
@@ -212,14 +228,14 @@ const client = new OpenAI({
 
 // Non-streaming
 const response = await client.chat.completions.create({
-  model:    "microsoft/Phi-4-mini-instruct",
+  model:    "default",
   messages: [{ role: "user", content: "What is 12 × 13?" }],
 });
 console.log(response.choices[0].message.content);
 
 // Streaming
 const stream = client.beta.chat.completions.stream({
-  model:    "microsoft/Phi-4-mini-instruct",
+  model:    "default",
   messages: [{ role: "user", content: "Tell me a short joke." }],
 });
 for await (const chunk of stream) {
@@ -239,7 +255,7 @@ with httpx.stream(
     "POST", f"{BASE}/chat/completions",
     headers={"Authorization": f"Bearer {KEY}", "Content-Type": "application/json"},
     json={
-        "model":    "microsoft/Phi-4-mini-instruct",
+        "model":    "default",
         "messages": [{"role": "user", "content": "Hello!"}],
         "stream":   True,
     },
@@ -257,7 +273,7 @@ from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage
 
 llm = ChatOpenAI(
-    model="microsoft/Phi-4-mini-instruct",
+    model="default",
     openai_api_base="http://localhost:3000/v1",
     openai_api_key="sk-studio-YOUR_KEY",
 )
@@ -268,7 +284,7 @@ print(response.content)
 
 ### n8n / Make / Zapier
 
-Set the **OpenAI base URL** to `http://localhost:3000/v1` (or the tunnel URL for remote workflows) and the **API key** to your `sk-studio-...` key. The model name is the full HuggingFace ID, e.g. `microsoft/Phi-4-mini-instruct`.
+Set the **OpenAI base URL** to `http://localhost:3000/v1` (or the tunnel URL for remote workflows) and the **API key** to your `sk-studio-...` key. Use model **`default`** to target the currently deployed model.
 
 ---
 
@@ -278,7 +294,7 @@ All parameters are passed through to vLLM. Common ones:
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `model` | string | Full HuggingFace model ID |
+| `model` | string | `default` or full HuggingFace model ID |
 | `messages` | array | Conversation history (chat completions) |
 | `prompt` | string | Input text (legacy completions) |
 | `stream` | boolean | Enable SSE streaming (default: false) |

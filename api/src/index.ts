@@ -2,6 +2,7 @@ import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
+import { recoverDeploymentIfNeeded } from "./lib/docker.js";
 import type { HonoVars } from "./middleware/auth.js";
 import { health } from "./routes/health.js";
 import { setup }  from "./routes/setup.js";
@@ -26,4 +27,5 @@ app.notFound(c => c.json({ error: "not found" }, 404));
 
 const port = Number(process.env.PORT ?? 3001);
 console.log(`[inference-studio] API listening on http://0.0.0.0:${port}`);
+void recoverDeploymentIfNeeded();
 serve({ fetch: app.fetch, port });

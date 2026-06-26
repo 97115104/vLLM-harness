@@ -4,6 +4,25 @@ import Link from "next/link";
 import Navbar from "@/components/navbar";
 import Footer from "@/components/footer";
 import type { Model } from "@/lib/api";
+import { toast } from "@/lib/toast";
+
+function copyText(text: string, label = "Copied") {
+  const done = () => toast(label, "ok");
+  const fail = () => toast("Copy failed", "err");
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(text).then(done).catch(fail);
+    return;
+  }
+  const el = document.createElement("textarea");
+  el.value = text;
+  el.style.position = "fixed";
+  el.style.opacity = "0";
+  document.body.appendChild(el);
+  el.select();
+  try { document.execCommand("copy") ? done() : fail(); }
+  catch { fail(); }
+  finally { document.body.removeChild(el); }
+}
 
 const TOP_5 = [
   "mistralai/Mistral-7B-Instruct-v0.3",
@@ -15,8 +34,17 @@ const TOP_5 = [
 
 type Status = {
   status: "idle" | "pulling" | "starting" | "running" | "error";
-  model: string | null; error: string | null; gpu_util: string | null; tunnel_url: string | null;
+  model: string | null; error: string | null; progress: string | null; gpu_util: string | null; tunnel_url: string | null;
+  activity?: string | null;
+  recent_log?: string | null;
+  progress_pct?: number | null;
+  started_at?: string | null;
+  max_input_tokens?: number; max_output_tokens?: number;
 };
+
+function formatTokens(n: number): string {
+  return n >= 1000 ? `${(n / 1000).toFixed(n % 1000 === 0 ? 0 : 1)}K` : String(n);
+}
 
 function ModelCard({ model, selected, onSelect }: { model: Model; selected: boolean; onSelect: () => void }) {
   const vramColor = model.vram_gb >= 40 ? "#ff4757" : model.vram_gb >= 16 ? "#ccff00" : "#00e676";
@@ -53,7 +81,14 @@ function ModelCard({ model, selected, onSelect }: { model: Model; selected: bool
         <div className="text-right shrink-0">
           <div className="text-xs font-mono mb-0.5" style={{ color: "#888" }}>{model.params}</div>
           <div className="text-xs" style={{ color: vramColor }}>{model.vram_gb}GB VRAM</div>
-          <div className="text-[10px] mt-1" style={{ color: "#444" }}>{model.context_k}K ctx</div>
+          <div className="text-[10px] mt-1 font-mono" style={{ color: "#444" }}>
+            {formatTokens(model.max_input_tokens)} in · {formatTokens(model.max_output_tokens)} out
+          </div>
+          {model.fits_cpu === false && (
+            <div className="text-[10px] mt-1" style={{ color: "#ff4757" }}>
+              needs ~{model.cpu_required_gb}GB RAM
+            </div>
+          )}
         </div>
       </div>
     </button>
@@ -73,7 +108,11 @@ function SetupWizard({ onDeployed }: { onDeployed: () => void }) {
   useEffect(() => {
     fetch("/api/setup/models")
       .then(r => r.json())
-      .then((d: { models: Model[] }) => setModels(d.models))
+      .then((d: { models: Model[] }) => {
+        setModels(d.models);
+        const firstFit = d.models.find(m => m.fits_cpu !== false);
+        if (firstFit) setSelected(firstFit.id);
+      })
       .catch(() => {});
   }, []);
 
@@ -140,15 +179,17 @@ function SetupWizard({ onDeployed }: { onDeployed: () => void }) {
 
       {error && <div className="mb-4 p-3 text-sm" style={{ background: "rgba(255,71,87,0.1)", border: "1px solid rgba(255,71,87,0.3)", color: "#ff4757" }}>{error}</div>}
 
-      <button onClick={deploy} disabled={deploying}
+      <button onClick={deploy} disabled={deploying || selectedModel?.fits_cpu === false}
         className="w-full py-3 font-bold text-sm transition-all"
         style={{
-          background: deploying ? "rgba(204,255,0,0.1)" : "#ccff00",
-          color: deploying ? "#ccff00" : "#000",
-          border: deploying ? "1px solid rgba(204,255,0,0.3)" : "none",
-          cursor: deploying ? "not-allowed" : "pointer",
+          background: deploying || selectedModel?.fits_cpu === false ? "rgba(204,255,0,0.1)" : "#ccff00",
+          color: deploying || selectedModel?.fits_cpu === false ? "#666" : "#000",
+          border: deploying || selectedModel?.fits_cpu === false ? "1px solid rgba(204,255,0,0.3)" : "none",
+          cursor: deploying || selectedModel?.fits_cpu === false ? "not-allowed" : "pointer",
         }}>
-        {deploying ? "Starting deployment…" : `Deploy ${selectedModel?.name ?? "model"}`}
+        {selectedModel?.fits_cpu === false
+          ? "Not enough Docker memory"
+          : deploying ? "Starting deployment…" : `Deploy ${selectedModel?.name ?? "model"}`}
       </button>
 
       {!token && (
@@ -160,22 +201,84 @@ function SetupWizard({ onDeployed }: { onDeployed: () => void }) {
   );
 }
 
-function DeployProgress({ status, onRunning }: { status: Status; onRunning: () => void }) {
+function formatElapsed(startedAt: string | null | undefined): string {
+  if (!startedAt) return "";
+  const sec = Math.max(0, Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000));
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return m > 0 ? `${m}m ${s}s` : `${s}s`;
+}
+
+function DeployProgress({ status, onRunning, onCancel }: { status: Status; onRunning: () => void; onCancel: () => void }) {
+  const [cancelling, setCancelling] = useState(false);
+  const [elapsed, setElapsed] = useState("");
+  const token = typeof window !== "undefined" ? localStorage.getItem("admin_token") ?? "" : "";
+
   useEffect(() => {
     if (status.status === "running") onRunning();
   }, [status, onRunning]);
 
+  useEffect(() => {
+    if (!status.started_at || !["pulling", "starting"].includes(status.status)) return;
+    const tick = () => setElapsed(formatElapsed(status.started_at));
+    tick();
+    const t = setInterval(tick, 1000);
+    return () => clearInterval(t);
+  }, [status.started_at, status.status]);
+
+  const cancel = async () => {
+    setCancelling(true);
+    try {
+      await fetch("/api/setup/cancel", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      onCancel();
+    } catch { setCancelling(false); }
+  };
+
+  const backToSetup = () => {
+    onCancel();
+    fetch("/api/setup/cancel", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+    }).catch(() => {});
+  };
+
   const steps = [
     { key: "pulling",  label: "Pulling Docker image" },
-    { key: "starting", label: "Starting vLLM engine" },
+    { key: "starting", label: status.activity || "Downloading & loading model" },
     { key: "running",  label: "Model ready" },
   ];
   const current = steps.findIndex(s => s.key === status.status);
+  const inProgress = ["pulling", "starting"].includes(status.status);
+  const pct = status.progress_pct ?? null;
+  const showIndeterminate = inProgress && (pct == null || pct < 5);
 
   return (
     <div className="fade-in max-w-lg mx-auto text-center">
       <h2 className="text-xl font-bold mb-2" style={{ color: "#ccff00" }}>Deploying {status.model?.split("/").pop()}</h2>
-      <p className="text-xs mb-8" style={{ color: "#555" }}>{status.model}</p>
+      <p className="text-xs mb-6" style={{ color: "#555" }}>{status.model}</p>
+
+      {inProgress && (
+        <div className="mb-6 text-left">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs" style={{ color: status.activity ? "#ccff00" : "#666" }}>
+              {status.activity || "Working…"}
+            </span>
+            <span className="text-xs font-mono" style={{ color: "#555" }}>
+              {pct != null && pct > 0 ? `${Math.round(pct)}%` : "in progress"}
+              {elapsed ? ` · ${elapsed}` : ""}
+            </span>
+          </div>
+          <div className="deploy-progress-track">
+            <div
+              className={`deploy-progress-fill${showIndeterminate ? " indeterminate" : ""}`}
+              style={{ width: showIndeterminate ? undefined : `${Math.max(4, pct ?? 8)}%` }}
+            />
+          </div>
+        </div>
+      )}
 
       <div className="flex flex-col gap-3 mb-8 text-left">
         {steps.map((s, i) => {
@@ -189,7 +292,9 @@ function DeployProgress({ status, onRunning }: { status: Status; onRunning: () =
                   border: active ? "1px solid rgba(204,255,0,0.5)" : "none",
                   color: done ? "#000" : "#ccff00",
                 }}>
-                {done ? "✓" : active ? "⋯" : ""}
+                {done ? "✓" : active ? (
+                  <span style={{ animation: "pulse-lime 1.2s ease-in-out infinite" }}>⋯</span>
+                ) : ""}
               </div>
               <span className="text-sm" style={{ color: done ? "#e8e8e8" : active ? "#ccff00" : "#444" }}>
                 {s.label}
@@ -204,21 +309,45 @@ function DeployProgress({ status, onRunning }: { status: Status; onRunning: () =
         })}
       </div>
 
-      {status.error && (
-        <div className="p-3 mb-4 text-sm text-left" style={{ background: "rgba(255,71,87,0.1)", border: "1px solid rgba(255,71,87,0.3)", color: "#ff4757" }}>
-          {status.error}
+      {(status.progress || status.recent_log) && inProgress && (
+        <div className="p-3 mb-4 text-sm text-left font-mono space-y-2" style={{ background: "rgba(204,255,0,0.06)", border: "1px solid rgba(204,255,0,0.2)", color: "#ccff00" }}>
+          {status.progress && <div>{status.progress}</div>}
+          {status.recent_log && status.recent_log !== status.progress && (
+            <div className="text-xs truncate" style={{ color: "#666" }}>{status.recent_log}</div>
+          )}
         </div>
       )}
 
-      {status.status === "error" && (
-        <button onClick={() => window.location.reload()}
-          className="px-4 py-2 text-sm" style={{ border: "1px solid #444", color: "#888" }}>
-          Try again
+      {status.error && (
+        <div className="p-3 mb-4 text-sm text-left" style={{ background: "rgba(255,71,87,0.1)", border: "1px solid rgba(255,71,87,0.3)", color: "#ff4757" }}>
+          {status.error}
+          {status.error.includes("out of memory") && (
+            <div className="mt-2 text-xs">
+              <Link href="/admin" style={{ color: "#ccff00" }}>Admin → Settings</Link>
+              {" "}to increase Docker memory, or choose a smaller model below.
+            </div>
+          )}
+        </div>
+      )}
+
+      {inProgress && (
+        <button onClick={cancel} disabled={cancelling}
+          className="px-4 py-2 text-sm mb-4" style={{ border: "1px solid #444", color: cancelling ? "#555" : "#888", cursor: cancelling ? "not-allowed" : "pointer" }}>
+          {cancelling ? "Cancelling…" : "Cancel deployment"}
         </button>
       )}
 
-      <p className="text-xs mt-6" style={{ color: "#333" }}>
-        Large models may take several minutes to download. This page will update automatically.
+      {status.status === "error" && (
+        <button onClick={backToSetup}
+          className="px-4 py-2 text-sm" style={{ border: "1px solid #444", color: "#888" }}>
+          Choose a different model
+        </button>
+      )}
+
+      <p className="text-xs mt-6" style={{ color: "#444" }}>
+        {inProgress
+          ? "First-time model downloads can take 5–15 minutes on CPU. The bar above shows live progress from vLLM logs."
+          : "Large models may take several minutes to download. This page will update automatically."}
       </p>
     </div>
   );
@@ -252,9 +381,11 @@ function Dashboard({ status }: { status: Status }) {
       </div>
 
       {/* Stats row */}
-      <div className="grid grid-cols-3 gap-3 mb-6">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-6">
         {[
           { label: "Active model", value: modelShort },
+          { label: "Max input", value: status.max_input_tokens ? status.max_input_tokens.toLocaleString() : "—" },
+          { label: "Max output", value: status.max_output_tokens ? status.max_output_tokens.toLocaleString() : "—" },
           { label: "GPU utilization", value: status.gpu_util ? `${Math.round(Number(status.gpu_util) * 100)}%` : "—" },
           { label: "Requests today", value: requests.filter(r => r.created_at.startsWith(new Date().toISOString().slice(0,10))).length },
         ].map(s => (
@@ -271,14 +402,14 @@ function Dashboard({ status }: { status: Status }) {
           <div className="text-xs mb-1 font-bold" style={{ color: "#ccff00" }}>Public tunnel active</div>
           <div className="flex items-center gap-3">
             <code className="text-xs font-mono flex-1 truncate" style={{ color: "#aaa" }}>{status.tunnel_url}</code>
-            <button onClick={() => navigator.clipboard?.writeText(status.tunnel_url!)}
+            <button type="button" onClick={() => copyText(status.tunnel_url!, "Tunnel URL copied")}
               className="text-xs px-2 py-1 shrink-0 transition-colors"
-              style={{ border: "1px solid rgba(204,255,0,0.3)", color: "#ccff00" }}>
+              style={{ border: "1px solid rgba(204,255,0,0.3)", color: "#ccff00", cursor: "pointer" }}>
               copy
             </button>
           </div>
           <div className="text-xs mt-2" style={{ color: "#444" }}>
-            Share this URL + an API key to allow remote access to your inference endpoint
+            Use <code style={{ color: "#666" }}>{status.tunnel_url}/v1</code> as your API base URL from any device. Share the URL + an API key for remote access.
           </div>
         </div>
       )}
@@ -286,11 +417,11 @@ function Dashboard({ status }: { status: Status }) {
       {/* Quick start */}
       <div className="mb-6 p-4" style={{ background: "#0f0f0f", border: "1px solid #1e1e1e" }}>
         <div className="text-xs font-bold mb-3" style={{ color: "#ccff00" }}>Quick start</div>
-        <pre className="text-xs overflow-x-auto" style={{ color: "#888", fontFamily: "var(--font-mono)" }}>{`curl http://localhost:3000/v1/chat/completions \\
+        <pre className="text-xs overflow-x-auto" style={{ color: "#888", fontFamily: "var(--font-mono)" }}>{`curl ${status.tunnel_url ?? "http://localhost:3000"}/v1/chat/completions \\
   -H "Authorization: Bearer sk-studio-..." \\
   -H "Content-Type: application/json" \\
   -d '{
-    "model": "${status.model}",
+    "model": "default",
     "messages": [{"role": "user", "content": "Hello!"}],
     "stream": true
   }'`}</pre>
@@ -358,15 +489,16 @@ export default function Home() {
       if (d.status === "running")                           setPhase("running");
       else if (d.status === "idle")                         setPhase("setup");
       else if (["pulling", "starting"].includes(d.status)) setPhase("deploying");
-      else if (d.status === "error")                        setPhase("deploying");
+      else if (d.status === "error")                        setPhase(p => p === "setup" ? "setup" : "deploying");
     } catch { setPhase("setup"); }
   }, []);
 
   useEffect(() => {
     refresh();
+    const ms = phase === "deploying" ? 2000 : 4000;
     const t = setInterval(() => {
       if (phase !== "running") refresh();
-    }, 4000);
+    }, ms);
     return () => clearInterval(t);
   }, [refresh, phase]);
 
@@ -382,7 +514,11 @@ export default function Home() {
         )}
         {phase === "setup" && <SetupWizard onDeployed={() => setPhase("deploying")} />}
         {phase === "deploying" && status && (
-          <DeployProgress status={status} onRunning={() => { setPhase("running"); refresh(); }} />
+          <DeployProgress
+            status={status}
+            onRunning={() => { setPhase("running"); refresh(); }}
+            onCancel={() => { setPhase("setup"); refresh(); }}
+          />
         )}
         {phase === "running" && status && <Dashboard status={status} />}
       </main>

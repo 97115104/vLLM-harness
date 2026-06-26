@@ -3,8 +3,31 @@ import { createHash } from "crypto";
 import db from "../db/index.js";
 import type { ApiKey } from "../db/index.js";
 import type { HonoVars } from "../middleware/auth.js";
+import { getVllmStatus } from "../lib/docker.js";
 
 const VLLM_URL = process.env.VLLM_URL || "http://inference-studio-vllm:8000";
+
+/** Clamp max_tokens so prompt + completion fits within the deployed model context. */
+function clampMaxTokens(body: Record<string, unknown>): void {
+  const stored = Number(getVllmStatus().max_model_len);
+  const maxModelLen = stored || (process.env.GPU_TYPE === "nvidia" ? 4096 : 1024);
+  const requested = Number(body.max_tokens ?? 512);
+  const cap = Math.max(64, maxModelLen - 256); // reserve headroom for the prompt
+  body.max_tokens = Math.min(requested, cap);
+}
+
+/** Map OpenAI client fields to what vLLM expects. */
+function normalizeOpenAiBody(body: Record<string, unknown>): void {
+  if (body.max_completion_tokens != null && body.max_tokens == null) {
+    body.max_tokens = body.max_completion_tokens;
+  }
+  delete body.max_completion_tokens;
+}
+
+function resolveModel(requested: string): string {
+  if (requested !== "default") return requested;
+  return getVllmStatus().model ?? requested;
+}
 
 const chat = new Hono<HonoVars>();
 
@@ -26,6 +49,21 @@ chat.use("/*", async (c, next) => {
   db.prepare("UPDATE api_keys SET last_used_at = datetime('now') WHERE id = ?").run(key.id);
   c.set("apiKey", key);
   await next();
+});
+
+chat.get("/models", c => {
+  const status = getVllmStatus();
+  if (!status.model || status.status !== "running") {
+    return c.json({ object: "list", data: [] });
+  }
+  const now = Math.floor(Date.now() / 1000);
+  return c.json({
+    object: "list",
+    data: [
+      { id: "default", object: "model", created: now, owned_by: "vllm" },
+      { id: status.model, object: "model", created: now, owned_by: "vllm" },
+    ],
+  });
 });
 
 // Transparent proxy — forwards all /v1/* to vLLM, captures details for the request log
@@ -55,6 +93,21 @@ chat.all("/*", async c => {
   let promptFull: string | undefined;
 
   if ((isChatCompletion || isLegacyCompletion) && parsedBody) {
+    if (isChatCompletion) {
+      const requested = String(parsedBody.model ?? "");
+      if (requested === "default" && !getVllmStatus().model) {
+        return openaiError(
+          "No model is deployed. Open the dashboard, deploy a model, and wait until it is running.",
+          "invalid_request_error",
+          "model_not_found",
+          503,
+        );
+      }
+      normalizeOpenAiBody(parsedBody);
+      clampMaxTokens(parsedBody);
+      parsedBody.model = resolveModel(requested);
+    }
+
     const model = String(parsedBody.model ?? "unknown");
     let promptPreview = "";
 

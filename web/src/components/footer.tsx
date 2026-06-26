@@ -16,7 +16,7 @@ export default function Footer() {
       </span>
 
       <a
-        href="https://attest.97115104.com/s/cy1a0o3x"
+        href="https://attest.97115104.com/s/csii81x4"
         target="_blank"
         rel="noopener noreferrer"
         style={{
@@ -41,7 +41,7 @@ export default function Footer() {
         }}
       >
         <span style={{ color: "#ccff00", fontSize: "10px" }}>✦</span>
-        Built with Claude Sonnet 4.6
+        Built with Cursor Auto (Composer 2.5)
       </a>
     </footer>
   );
